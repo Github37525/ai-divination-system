@@ -12,6 +12,19 @@ class CastingError(ValueError):
 
 class Caster:
     @staticmethod
+    def coin_result_to_line(fronts: int, reverses: int) -> int:
+        """把三枚铜钱的正反面结果换算为 6-9 爻值（正=3，反=2）。"""
+        if (
+            type(fronts) is not int
+            or type(reverses) is not int
+            or fronts < 0
+            or reverses < 0
+            or fronts + reverses != 3
+        ):
+            raise CastingError("铜钱结果必须由3枚硬币组成，且正反面数量不能为负数。")
+        return fronts * 3 + reverses * 2
+
+    @staticmethod
     def _build_hexagram_codes(standard_lines: List[int]) -> Tuple[str, Optional[str]]:
         """根据初爻到上爻的爻值生成本卦与变卦二进制码。"""
         original_bits = [1 if line in (7, 9) else 0 for line in standard_lines]

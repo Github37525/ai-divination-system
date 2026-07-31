@@ -4,12 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import html
 import os
+import secrets
 import uuid
 
 import streamlit as st
 
 from engine.astronomy import AstronomyCalculationError
-from engine.caster import CastingError
+from engine.caster import Caster, CastingError
 from engine.guardrails import GuardrailValidationError
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanError
@@ -223,6 +224,67 @@ st.markdown(
         letter-spacing: .13em;
         text-transform: uppercase;
     }
+    .coin-rule {
+        margin: .65rem 0 .9rem;
+        padding: .72rem .85rem;
+        border: 1px solid rgba(232, 201, 119, .18);
+        border-radius: 10px;
+        background: rgba(232, 201, 119, .045);
+        color: #b8becd;
+        font-size: .82rem;
+        line-height: 1.65;
+    }
+    .coin-rule strong { color: var(--gold-strong); }
+    .throw-grid { display: grid; gap: .55rem; margin: .8rem 0; }
+    .throw-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: .75rem;
+        padding: .7rem .8rem;
+        border: 1px solid rgba(196, 168, 103, .16);
+        border-radius: 10px;
+        background: rgba(7, 10, 22, .68);
+    }
+    .throw-meta { display: grid; gap: .16rem; }
+    .throw-meta span { color: #8f97aa; font-size: .76rem; }
+    .throw-meta strong { color: var(--ink); font-size: .95rem; }
+    .coin-faces { display: flex; gap: .35rem; }
+    .coin-face {
+        display: grid;
+        place-items: center;
+        width: 2.15rem;
+        height: 2.15rem;
+        border: 1px solid rgba(232, 201, 119, .55);
+        border-radius: 999px;
+        color: #17130a;
+        background: linear-gradient(145deg, #f0d888, #b88c36);
+        font-size: .78rem;
+        font-weight: 900;
+        box-shadow: inset 0 0 0 3px rgba(255, 245, 195, .18);
+    }
+    .coin-face.reverse {
+        color: #d8deee;
+        border-color: #667291;
+        background: linear-gradient(145deg, #39445f, #171d30);
+        box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .035);
+    }
+    .throw-card.latest {
+        border-color: var(--gold);
+        box-shadow: inset 3px 0 0 var(--gold);
+    }
+    .throw-card.latest .coin-face { animation: coin-reveal .72s cubic-bezier(.2,.8,.2,1); }
+    .throw-card.latest .coin-face:nth-child(2) { animation-delay: .08s; }
+    .throw-card.latest .coin-face:nth-child(3) { animation-delay: .16s; }
+    @keyframes coin-reveal {
+        0% { opacity: 0; transform: translateY(-1.2rem) rotateY(0deg) scale(.78); }
+        70% { opacity: 1; transform: translateY(.12rem) rotateY(540deg) scale(1.05); }
+        100% { opacity: 1; transform: translateY(0) rotateY(720deg) scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .throw-card.latest .coin-face { animation: none; }
+        .stButton > button:hover { transform: none; }
+    }
     *:focus-visible { outline: 3px solid var(--blue) !important; outline-offset: 2px !important; }
     @media (max-width: 760px) {
         [data-testid="stAppViewContainer"],
@@ -266,6 +328,15 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+COIN_LINE_LABELS = {
+    6: "三反 · 老阴（动爻）",
+    7: "一正二反 · 少阳（静爻）",
+    8: "二正一反 · 少阴（静爻）",
+    9: "三正 · 老阳（动爻）",
+}
+LINE_POSITION_LABELS = {1: "初爻", 2: "二爻", 3: "三爻", 4: "四爻", 5: "五爻", 6: "上爻"}
 
 
 @st.cache_resource
@@ -329,6 +400,26 @@ def render_sixyao_lines(paipan: dict, focus: int | None) -> None:
     st.markdown(f"<div class='yao-stack'>{''.join(rendered_lines)}</div>", unsafe_allow_html=True)
 
 
+def render_virtual_throws(throws: list[dict]) -> None:
+    cards = []
+    for index, throw in enumerate(throws, start=1):
+        coin_faces = "".join(
+            f'<span class="coin-face{" reverse" if face == "反" else ""}" '
+            f'aria-label="{face}面">{face}</span>'
+            for face in throw["coins"]
+        )
+        latest_class = " latest" if index == len(throws) else ""
+        cards.append(
+            f'<div class="throw-card{latest_class}">'
+            f'<div class="throw-meta"><span>第 {index} 摇 · {LINE_POSITION_LABELS[index]}</span>'
+            f'<strong>{html.escape(COIN_LINE_LABELS[throw["value"]])}</strong></div>'
+            f'<div class="coin-faces" role="img" aria-label="本次结果：{"、".join(throw["coins"])}">'
+            f'{coin_faces}</div></div>'
+        )
+    if cards:
+        st.markdown(f'<div class="throw-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
 def render_qimen_chart(chart: dict) -> None:
     st.success(
         f"{chart['solar_term']} · {chart['yuan']} · {chart['dun']}{chart['ju_number']}局 · "
@@ -390,6 +481,7 @@ with sixyao_tab:
         "latitude": latitude,
         "timezone_offset_hours": timezone_offset,
     }
+    can_cast = True
     render_section_intro(
         "CAST A HEXAGRAM",
         "六爻问事",
@@ -413,22 +505,85 @@ with sixyao_tab:
         with form_right:
             st.markdown('<div class="audit-label">02 · 录入卦象</div>', unsafe_allow_html=True)
             if cast_mode == "手摇卦":
-                labels = ("上爻（最上）", "五爻", "四爻", "三爻", "二爻", "初爻（最下）")
-                format_line = {6: "老阴 ⚋×", 7: "少阳 ⚊", 8: "少阴 ⚋", 9: "老阳 ⚊○"}
-                lines = []
-                for row_start in range(0, 6, 2):
-                    line_columns = st.columns(2)
-                    for column_index, label in enumerate(labels[row_start:row_start + 2]):
-                        index = row_start + column_index
-                        lines.append(
-                            line_columns[column_index].selectbox(
-                                label,
-                                [8, 7, 6, 9],
-                                format_func=format_line.get,
-                                key=f"manual_line_{index}",
+                hand_mode = st.radio(
+                    "手摇卦方式",
+                    ["记录正反面", "虚拟摇卦"],
+                    horizontal=True,
+                    key="hand_cast_mode",
+                )
+                st.markdown(
+                    '<div class="coin-rule"><strong>三枚铜钱换算：</strong>正面计 3，反面计 2。'
+                    '三反=老阴，一正二反=少阳，二正一反=少阴，三正=老阳。'
+                    '第一次为初爻，依次向上。</div>',
+                    unsafe_allow_html=True,
+                )
+                if hand_mode == "记录正反面":
+                    labels = (
+                        "第 6 次 · 上爻",
+                        "第 5 次 · 五爻",
+                        "第 4 次 · 四爻",
+                        "第 3 次 · 三爻",
+                        "第 2 次 · 二爻",
+                        "第 1 次 · 初爻",
+                    )
+                    lines = []
+                    for row_start in range(0, 6, 2):
+                        line_columns = st.columns(2)
+                        for column_index, label in enumerate(labels[row_start:row_start + 2]):
+                            index = row_start + column_index
+                            lines.append(
+                                line_columns[column_index].selectbox(
+                                    label,
+                                    [6, 7, 8, 9],
+                                    index=2,
+                                    format_func=COIN_LINE_LABELS.get,
+                                    key=f"manual_coin_line_{index}",
+                                )
                             )
+                    casting_input.update(mode="manual", lines=lines)
+                else:
+                    virtual_throws = list(st.session_state.get("virtual_coin_throws", []))
+                    st.progress(
+                        len(virtual_throws) / 6,
+                        text=f"已完成 {len(virtual_throws)} / 6 摇",
+                    )
+                    action_columns = st.columns([1.5, 1])
+                    shake_clicked = action_columns[0].button(
+                        "摇一爻",
+                        key="virtual_shake",
+                        disabled=len(virtual_throws) >= 6,
+                        use_container_width=True,
+                    )
+                    reset_clicked = action_columns[1].button(
+                        "重新开始",
+                        key="virtual_reset",
+                        disabled=not virtual_throws,
+                        use_container_width=True,
+                    )
+                    if shake_clicked:
+                        coins = [secrets.choice(("正", "反")) for _ in range(3)]
+                        fronts = coins.count("正")
+                        virtual_throws.append(
+                            {
+                                "coins": coins,
+                                "value": Caster.coin_result_to_line(fronts, 3 - fronts),
+                            }
                         )
-                casting_input.update(mode="manual", lines=lines)
+                        st.session_state["virtual_coin_throws"] = virtual_throws
+                        st.rerun()
+                    if reset_clicked:
+                        st.session_state["virtual_coin_throws"] = []
+                        st.session_state.pop("sixyao_result", None)
+                        st.rerun()
+                    render_virtual_throws(virtual_throws)
+                    can_cast = len(virtual_throws) == 6
+                    if can_cast:
+                        lines = list(reversed([throw["value"] for throw in virtual_throws]))
+                        casting_input.update(mode="manual", lines=lines)
+                        st.success("六爻已完成，可以开始排盘。")
+                    else:
+                        casting_input.update(mode="manual", lines=[])
+                        st.caption("请从初爻开始，共摇六次；每次结果会自动记录。")
             else:
                 number_columns = st.columns(3)
                 numbers = [
@@ -438,7 +593,13 @@ with sixyao_tab:
                 ]
                 casting_input.update(mode="number", numbers=numbers)
 
-        if st.button("开始排盘并生成解读", type="primary", use_container_width=True):
+        cast_button_label = "开始排盘并生成解读" if can_cast else "完成六次摇卦后开始排盘"
+        if st.button(
+            cast_button_label,
+            type="primary",
+            use_container_width=True,
+            disabled=not can_cast,
+        ):
             try:
                 with st.spinner("正在排盘、校验并生成受约束解读…"):
                     st.session_state["sixyao_result"] = run_divination_pipeline(

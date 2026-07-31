@@ -165,6 +165,18 @@ class CalendarTests(unittest.TestCase):
 
 
 class CasterTests(unittest.TestCase):
+    def test_coin_faces_map_to_four_line_states(self):
+        self.assertEqual(Caster.coin_result_to_line(0, 3), 6)
+        self.assertEqual(Caster.coin_result_to_line(1, 2), 7)
+        self.assertEqual(Caster.coin_result_to_line(2, 1), 8)
+        self.assertEqual(Caster.coin_result_to_line(3, 0), 9)
+
+    def test_invalid_coin_faces_are_rejected(self):
+        for fronts, reverses in ((2, 2), (-1, 4), (True, 2)):
+            with self.subTest(fronts=fronts, reverses=reverses):
+                with self.assertRaises(CastingError):
+                    Caster.coin_result_to_line(fronts, reverses)
+
     def test_manual_cast_builds_actual_hexagram_code(self):
         result = Caster.cast_manual([8, 8, 8, 8, 8, 8])
         self.assertEqual(result["hexagram_code"], "000000")
