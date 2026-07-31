@@ -4,8 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import sxtwl
-
 from .astronomy import AstronomyService, JIEQI_NAMES
 from .config import DIZHI, FIVE_ELEMENTS, TIANGAN
 
@@ -241,9 +239,9 @@ class QimenService:
         selected_year = flow_year or birth_dt.year
         annual_cycles = []
         for year in range(selected_year, selected_year + 10):
-            day = sxtwl.fromSolar(year, 7, 1)
-            gz = day.getYearGZ()
-            ganzhi = f"{TIANGAN[gz.tg]}{DIZHI[gz.dz]}"
+            ganzhi = AstronomyService.get_ganzhi_calendar(
+                datetime(year, 7, 1, 12), 120.0
+            )["year_ganzhi"]
             annual_cycles.append({"year": year, "ganzhi": ganzhi})
         monthly_cycles = []
         for month in range(1, 13):

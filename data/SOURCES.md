@@ -30,11 +30,11 @@
 
 ## 历法引擎
 
-- 四柱与节气：`sxtwl==2.0.7`，即“寿星天文历”C++/Python 实现，许可证 BSD-3-Clause。
+- 四柱与节气：`lunar-python==1.4.8` 纯 Python 实现，许可证 MIT；避免云端 Python 版本与原生扩展 ABI 不兼容。
 - 节气切分：读取节气儒略日并换算到北京时间的秒/毫秒字段；在节气当天按实际交接时刻修正年柱和月柱，避免底层“整日切换”造成的边界误差。
 - 真太阳时：经度差采用每度 4 分钟；均时差使用 NOAA fractional-year 公式。时区基准经线由 `UTC offset × 15°` 得到，不写死东八区。
 - 日时柱：采用六爻常用的“晚子时 23:00 换日”约定，并在返回结果中显式记录。
-- 独立核验：开发测试使用 MIT 许可证的 `lunar-python==1.4.8` 对照四柱和节气。基准 `2024-02-04 立春`，sxtwl 为 `16:26:53`，lunar-python 为 `16:27:07`，相差约 14 秒，切柱结论一致。
+- 基准核验：`2024-02-04 立春` 为 `16:27:07`，在交节前后分别锁定癸卯年乙丑月与甲辰年丙寅月；另以固定四柱、旬空和六神用例回归。
 
 纬度会被校验并写入审计数据；真太阳钟的时间修正由经度和均时差决定，因此当前公式不直接使用纬度。纬度留给后续日出日落或奇门空间模型。
 
@@ -52,7 +52,6 @@ py -3 scripts/build_hexagrams_db.py
 
 - 维基文库《周易》：<https://zh.wikisource.org/wiki/周易>
 - CTP《周易·易经》：<https://ctext.org/book-of-changes/yi-jing/zhs>
-- sxtwl：<https://github.com/yuangu/sxtwl_cpp>
 - lunar-python：<https://github.com/6tail/lunar-python>
 - NOAA Solar Calculation Details：<https://gml.noaa.gov/grad/solcalc/calcdetails.html>
 - 规则交叉实现：<https://github.com/yaomancy/liuyao-engine>

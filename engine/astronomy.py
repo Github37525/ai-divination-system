@@ -1,11 +1,12 @@
-"""四柱、节气、真太阳时、旬空与六神的确定性历法引擎。"""
+"""四柱、节气、真太阳时、旬空与六神的纯 Python 历法引擎。"""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from math import cos, isfinite, pi, sin
 from typing import Any, Dict, Optional
 
-import sxtwl
+from lunar_python import Solar
 
 from .config import DIZHI, FIVE_ELEMENTS, LIUSHEN_MAP, TIANGAN
 
@@ -16,7 +17,6 @@ JIEQI_NAMES = (
     "夏至", "小暑", "大暑", "立秋", "处暑", "白露",
     "秋分", "寒露", "霜降", "立冬", "小雪", "大雪",
 )
-MONTH_BOUNDARY_JIEQI = frozenset(range(1, 24, 2))
 BEIJING_OFFSET_HOURS = 8.0
 
 
@@ -37,27 +37,31 @@ def _validate_number(value: float, label: str, minimum: float, maximum: float) -
     return float(value)
 
 
-def _ganzhi(value: Any) -> str:
-    return f"{TIANGAN[value.tg]}{DIZHI[value.dz]}"
-
-
-def _sxtwl_time_to_datetime(value: Any) -> datetime:
-    seconds = float(value.s)
-    whole_seconds = int(seconds)
-    microseconds = round((seconds - whole_seconds) * 1_000_000)
-    base = datetime(
-        int(value.Y), int(value.M), int(value.D),
-        int(value.h), int(value.m), whole_seconds,
+def _solar_to_datetime(value: Solar) -> datetime:
+    return datetime(
+        value.getYear(), value.getMonth(), value.getDay(),
+        value.getHour(), value.getMinute(), value.getSecond(),
     )
-    return base + timedelta(microseconds=microseconds)
 
 
 def _format_time(value: datetime) -> str:
     return value.isoformat(timespec="milliseconds")
 
 
+@lru_cache(maxsize=64)
+def _jieqi_events_for_year(year: int) -> tuple[tuple[int, str, datetime], ...]:
+    """返回该公历年节气表；冬至项指向上一年冬至，便于跨年定位。"""
+    table = Solar.fromYmdHms(year, 7, 1, 12, 0, 0).getLunar().getJieQiTable()
+    events = []
+    for index, name in enumerate(JIEQI_NAMES):
+        value = table.get(name)
+        if value is not None:
+            events.append((index, name, _solar_to_datetime(value)))
+    return tuple(events)
+
+
 class AstronomyService:
-    """按北京时间节气边界和本地真太阳钟计算六爻所需历法字段。"""
+    """按北京时间节气边界和本地真太阳钟计算六爻与奇门历法字段。"""
 
     @staticmethod
     def equation_of_time_minutes(dt: datetime) -> float:
@@ -104,29 +108,28 @@ class AstronomyService:
 
     @staticmethod
     def _beijing_reference_time(dt: datetime, offset_hours: float) -> datetime:
-        if dt.tzinfo is not None:
-            aware = dt
-        else:
-            aware = dt.replace(tzinfo=timezone(timedelta(hours=offset_hours)))
-        return aware.astimezone(timezone(timedelta(hours=BEIJING_OFFSET_HOURS))).replace(tzinfo=None)
+        aware = dt if dt.tzinfo is not None else dt.replace(
+            tzinfo=timezone(timedelta(hours=offset_hours))
+        )
+        return aware.astimezone(
+            timezone(timedelta(hours=BEIJING_OFFSET_HOURS))
+        ).replace(tzinfo=None)
 
     @staticmethod
     def _term_on_day(day_value: date) -> Optional[dict[str, Any]]:
-        solar_day = sxtwl.fromSolar(day_value.year, day_value.month, day_value.day)
-        if not solar_day.hasJieQi():
-            return None
-        index = int(solar_day.getJieQi())
-        moment = _sxtwl_time_to_datetime(sxtwl.JD2DD(solar_day.getJieQiJD()))
-        return {"index": index, "name": JIEQI_NAMES[index], "time": moment}
+        for year in (day_value.year, day_value.year + 1):
+            for index, name, moment in _jieqi_events_for_year(year):
+                if moment.date() == day_value:
+                    return {"index": index, "name": name, "time": moment}
+        return None
 
     @staticmethod
     def _surrounding_terms(reference_time: datetime) -> tuple[dict[str, Any], dict[str, Any]]:
-        events = []
-        for delta in range(-20, 21):
-            event = AstronomyService._term_on_day((reference_time + timedelta(days=delta)).date())
-            if event:
-                events.append(event)
-        events.sort(key=lambda item: item["time"])
+        unique = {}
+        for year in (reference_time.year, reference_time.year + 1):
+            for index, name, moment in _jieqi_events_for_year(year):
+                unique[(name, moment)] = {"index": index, "name": name, "time": moment}
+        events = sorted(unique.values(), key=lambda item: item["time"])
         previous = next((item for item in reversed(events) if item["time"] <= reference_time), None)
         following = next((item for item in events if item["time"] > reference_time), None)
         if previous is None or following is None:
@@ -134,19 +137,13 @@ class AstronomyService:
         return previous, following
 
     @staticmethod
-    def _year_month_ganzhi(reference_time: datetime) -> tuple[Any, Any]:
-        """修正 sxtwl 在节气当天按整日返回新柱的行为。"""
-        solar_day = sxtwl.fromSolar(reference_time.year, reference_time.month, reference_time.day)
-        source_day = solar_day
-        if solar_day.hasJieQi():
-            term_index = int(solar_day.getJieQi())
-            term_time = _sxtwl_time_to_datetime(sxtwl.JD2DD(solar_day.getJieQiJD()))
-            if term_index in MONTH_BOUNDARY_JIEQI and reference_time < term_time:
-                previous_date = reference_time.date() - timedelta(days=1)
-                source_day = sxtwl.fromSolar(
-                    previous_date.year, previous_date.month, previous_date.day
-                )
-        return source_day.getYearGZ(), source_day.getMonthGZ()
+    def _year_month_ganzhi(reference_time: datetime) -> tuple[str, str]:
+        lunar = Solar.fromYmdHms(
+            reference_time.year, reference_time.month, reference_time.day,
+            reference_time.hour, reference_time.minute, reference_time.second,
+        ).getLunar()
+        eight_char = lunar.getEightChar()
+        return eight_char.getYear(), eight_char.getMonth()
 
     @staticmethod
     def get_ganzhi_calendar(
@@ -166,34 +163,31 @@ class AstronomyService:
         try:
             true_dt = AstronomyService.calculate_true_solar_time(dt, longitude, offset_hours)
             reference_time = AstronomyService._beijing_reference_time(dt, offset_hours)
-            year_gz, month_gz = AstronomyService._year_month_ganzhi(reference_time)
+            year_text, month_text = AstronomyService._year_month_ganzhi(reference_time)
 
             day_date = true_dt.date()
             if true_dt.hour == 23:
                 day_date += timedelta(days=1)
-            day_object = sxtwl.fromSolar(day_date.year, day_date.month, day_date.day)
-            day_gz = day_object.getDayGZ()
+            day_eight_char = Solar.fromYmdHms(
+                day_date.year, day_date.month, day_date.day, 12, 0, 0
+            ).getLunar().getEightChar()
+            day_text = day_eight_char.getDay()
+            day_stem_index = TIANGAN.index(day_text[0])
+            day_branch_index = DIZHI.index(day_text[1])
             hour_branch_index = ((true_dt.hour + 1) // 2) % 12
-            hour_stem_index = ((int(day_gz.tg) % 5) * 2 + hour_branch_index) % 10
-
+            hour_stem_index = ((day_stem_index % 5) * 2 + hour_branch_index) % 10
+            hour_text = f"{TIANGAN[hour_stem_index]}{DIZHI[hour_branch_index]}"
             previous_term, next_term = AstronomyService._surrounding_terms(reference_time)
         except AstronomyCalculationError:
             raise
         except Exception as error:
             raise AstronomyCalculationError(f"历法计算失败：{error}") from error
 
-        day_stem_index = int(day_gz.tg)
-        day_branch_index = int(day_gz.dz)
-        month_branch_index = int(month_gz.dz)
+        month_branch_index = DIZHI.index(month_text[1])
         xunkong_start = (day_branch_index - day_stem_index - 2) % 12
         standard_meridian = 15.0 * offset_hours
         longitude_correction = 4.0 * (longitude - standard_meridian)
         equation_of_time = AstronomyService.equation_of_time_minutes(dt)
-
-        year_text = _ganzhi(year_gz)
-        month_text = _ganzhi(month_gz)
-        day_text = _ganzhi(day_gz)
-        hour_text = f"{TIANGAN[hour_stem_index]}{DIZHI[hour_branch_index]}"
         return {
             "civil_time": _format_time(dt),
             "beijing_reference_time": _format_time(reference_time),
@@ -227,5 +221,5 @@ class AstronomyService:
                 "name": next_term["name"],
                 "time": _format_time(next_term["time"]),
             },
-            "calendar_backend": "sxtwl 2.0.7 (BSD-3-Clause)",
+            "calendar_backend": "lunar-python 1.4.8 (MIT, pure Python)",
         }

@@ -31,7 +31,7 @@ python -m streamlit run app.py
 ## Streamlit Community Cloud
 
 1. 仓库选择 `Github37525/ai-divination-system`，分支 `main`，入口 `app.py`。
-2. 在 Advanced settings 中选择 Python 3.12。`sxtwl==2.0.7` 提供 CPython 3.12 的 manylinux wheel。
+2. 可使用 Streamlit Cloud 当前提供的 Python 版本；历法后端为纯 Python，不依赖平台原生扩展。
 3. 在 Secrets 中添加（不要写入 Git）：
 
 ```toml

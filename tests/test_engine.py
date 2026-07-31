@@ -138,15 +138,17 @@ class CalendarTests(unittest.TestCase):
         self.assertAlmostEqual(correction.total_seconds() / 60, expected_minutes, places=3)
         self.assertEqual(result["longitude_correction_minutes"], -129.6)
 
-    def test_calendar_matches_independent_lunar_python(self):
-        try:
-            from lunar_python import Solar
-        except ImportError:
-            self.skipTest("lunar-python is an optional verification dependency")
+    def test_calendar_matches_lunar_python_public_contract(self):
+        from lunar_python import Solar
         reference = Solar.fromYmdHms(2026, 8, 12, 10, 30, 0).getLunar().getEightChar()
         expected = [reference.getYear(), reference.getMonth(), reference.getDay(), reference.getTime()]
         actual = AstronomyService.get_ganzhi_calendar(datetime(2026, 8, 12, 10, 30), 120.0)
         self.assertEqual(actual["four_pillars"], expected)
+
+    def test_production_dependencies_do_not_require_native_sxtwl_extension(self):
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("lunar-python==1.4.8", requirements)
+        self.assertNotIn("sxtwl", requirements.lower())
 
     def test_invalid_coordinates_are_rejected(self):
         with self.assertRaises(AstronomyCalculationError):
