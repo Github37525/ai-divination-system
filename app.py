@@ -1,16 +1,9 @@
 """
 app.py - Streamlit 可视化前端与部署入口
 """
-import sys
-import os
-
-# 确保项目根目录在 Python 模块搜索路径的最首位
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 import streamlit as st
 import datetime
 import uuid
-import json
 
 # 导入底层引擎模块
 from engine.caster import Caster, CastingError
@@ -49,7 +42,6 @@ if cast_mode == "手摇卦 (摇爻)":
     st.markdown("#### 请从初爻（最下方）到上爻（最上方）选择六爻状态：")
     col1, col2 = st.columns(2)
     
-    # 注意：手动选择界面保持从初爻到上爻的习惯
     with col1:
         line1 = st.selectbox("初爻 (最下)", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
         line2 = st.selectbox("二爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
@@ -59,7 +51,6 @@ if cast_mode == "手摇卦 (摇爻)":
         line5 = st.selectbox("五爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
         line6 = st.selectbox("上爻 (最上)", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
         
-    # 注意 Caster.cast_manual 内部会自动翻转，这里直接传入习惯顺序 [上爻...初爻]
     casting_input = {"mode": "manual", "lines": [line6, line5, line4, line3, line2, line1], "longitude": city_lng}
 
 else:
@@ -101,7 +92,7 @@ if st.button("🚀 开始起卦与 AI 解读", type="primary", use_container_wid
                 st.error(f"❌ 系统校验熔断：{str(e)}")
                 st.stop()
         
-        # 显示硬核排盘客观结果（面板展示）
+        # 显示排盘客观结果
         st.success("✅ 确定性排盘完成 (已通过 Guardrails 硬校验)")
         
         col_res1, col_res2, col_res3 = st.columns(3)

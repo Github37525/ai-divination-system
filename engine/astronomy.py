@@ -5,7 +5,7 @@ engine/astronomy.py
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
-# 直接使用包内相对导入，彻底消除路径问题
+# 使用包内相对导入，彻底避免云端部署路径问题
 from .config import TIANGAN, DIZHI, LIUSHEN_MAP
 
 
@@ -19,11 +19,11 @@ class AstronomyService:
     @staticmethod
     def get_ganzhi_calendar(dt: datetime, longitude: float = 120.0) -> Dict[str, Any]:
         """
-        推算干支历法与神煞（简化算法演示，实际生产可对接 Swiss Ephemeris）
+        推算干支历法与神煞（基础演示算法）
         """
         true_dt = AstronomyService.calculate_true_solar_time(dt, longitude)
         
-        # 演示用干支计算接口
+        # 演示用干支接口
         day_gan = "甲"
         day_zhi = "子"
         month_zhi = "午"
