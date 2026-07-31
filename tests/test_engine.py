@@ -14,7 +14,14 @@ from engine.guardrails import Guardrails
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanEngine, PaipanError
 from engine.tracker import AuditTracker
-from engine.qimen import QimenCalculationError, QimenService
+from engine.qimen import GATE_SEQUENCE, STAR_SEQUENCE, QimenCalculationError, QimenService
+from engine.qimen_plain_language import (
+    GATE_GUIDANCE,
+    GATE_LONG_TERM_STYLE,
+    STAR_GUIDANCE,
+    summarize_asking_chart,
+    summarize_lifelong_chart,
+)
 from main import run_divination_pipeline
 
 
@@ -451,6 +458,30 @@ class FullPipelineTests(unittest.TestCase):
 
 
 class QimenTests(unittest.TestCase):
+    def test_plain_language_rules_cover_every_gate_and_star(self):
+        self.assertEqual(set(GATE_GUIDANCE), set(GATE_SEQUENCE))
+        self.assertEqual(set(GATE_LONG_TERM_STYLE), set(GATE_SEQUENCE))
+        self.assertEqual(set(STAR_GUIDANCE), set(STAR_SEQUENCE) | {"天禽"})
+
+    def test_asking_summary_translates_chart_into_actions_and_basis(self):
+        chart = QimenService.build_asking_chart(
+            datetime(2008, 11, 4, 12, 30), 120.0, category="事业"
+        )
+        summary = summarize_asking_chart(chart)
+        self.assertIn("主动推进", summary["headline"])
+        self.assertIn("值使：开门", summary["basis"][0])
+        self.assertEqual(len(summary["actions"]), 3)
+        self.assertEqual(len(summary["risks"]), 2)
+
+    def test_lifelong_summary_explains_selected_year_and_limits(self):
+        chart = QimenService.build_lifelong_chart(
+            datetime(1990, 5, 17, 8, 30), 120.15, 30.28, "男", 2026
+        )
+        summary = summarize_lifelong_chart(chart)
+        self.assertIn("2026", summary["headline"])
+        self.assertIn("起运年龄", summary["basis"][2])
+        self.assertIn("不是对人生事件的确定预测", summary["disclaimer"])
+
     def test_verified_reference_chart_matches_key_layers(self):
         chart = QimenService.build_asking_chart(datetime(2008, 11, 4, 12, 30), 120.0)
         self.assertEqual((chart["solar_term"], chart["dun"], chart["ju_number"]), ("霜降", "阴遁", 2))

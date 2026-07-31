@@ -15,6 +15,7 @@ from engine.guardrails import GuardrailValidationError
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanError
 from engine.qimen import QimenCalculationError, QimenService
+from engine.qimen_plain_language import summarize_asking_chart, summarize_lifelong_chart
 from engine.tracker import AuditTracker
 from main import run_divination_pipeline
 
@@ -217,6 +218,18 @@ st.markdown(
     }
     .chart-summary { color: #d9dce5; line-height: 1.75; }
     .chart-summary strong { color: var(--gold-strong); }
+    .plain-conclusion {
+        margin: .7rem 0 1rem;
+        padding: 1rem 1.05rem;
+        border-left: 4px solid var(--gold);
+        border-radius: 0 12px 12px 0;
+        background: linear-gradient(90deg, rgba(232, 201, 119, .13), rgba(91, 140, 255, .055));
+        color: var(--ink);
+        font-family: "Noto Serif SC", "Songti SC", serif;
+        font-size: 1.12rem;
+        font-weight: 750;
+        line-height: 1.75;
+    }
     .audit-label {
         color: var(--gold);
         font-size: .72rem;
@@ -418,6 +431,32 @@ def render_virtual_throws(throws: list[dict]) -> None:
         )
     if cards:
         st.markdown(f'<div class="throw-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def render_plain_conclusion(summary: dict) -> None:
+    with st.container(border=True):
+        st.markdown(
+            f'<div class="audit-label">{html.escape(summary["label"])}</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("### 一眼结论")
+        st.markdown(
+            f'<div class="plain-conclusion">{html.escape(summary["headline"])}</div>',
+            unsafe_allow_html=True,
+        )
+        action_column, risk_column = st.columns(2, gap="large")
+        with action_column:
+            st.markdown("#### 现在怎么做")
+            for action in summary["actions"]:
+                st.markdown(f"- {action}")
+        with risk_column:
+            st.markdown("#### 需要留意")
+            for risk in summary["risks"]:
+                st.markdown(f"- {risk}")
+        with st.expander("这条结论是怎么得出的"):
+            for basis in summary["basis"]:
+                st.markdown(f"- {basis}")
+            st.caption(summary["disclaimer"])
 
 
 def render_qimen_chart(chart: dict) -> None:
@@ -685,6 +724,7 @@ with asking_tab:
     )
     asking_query = st.text_input("问事主题", key="qimen_query")
     category = st.selectbox("事项类别", ["综合", "事业", "合作", "出行", "学业", "关系"])
+    st.caption("选择更准确的事项类别，可以让白话行动建议更具体。")
     use_now = st.checkbox("使用当前时间", value=True)
     if use_now:
         asking_time = dt.datetime.now(dt.timezone.utc).astimezone(
@@ -712,6 +752,8 @@ with asking_tab:
                 st.error(f"奇门排盘中止：{error}")
     if "asking_result" in st.session_state:
         run_id, chart = st.session_state["asking_result"]
+        render_plain_conclusion(summarize_asking_chart(chart))
+        st.markdown("### 专业九宫盘")
         render_qimen_chart(chart)
         st.caption(f"Run ID：{run_id}")
 
@@ -744,6 +786,8 @@ with lifelong_tab:
             st.error(f"终身盘计算中止：{error}")
     if "lifelong_result" in st.session_state:
         run_id, chart = st.session_state["lifelong_result"]
+        render_plain_conclusion(summarize_lifelong_chart(chart))
+        st.markdown("### 专业盘面与时间结构")
         columns = st.columns(3)
         columns[0].metric("起运年龄", f"{chart['start_age']} 岁")
         columns[1].metric("大运方向", chart["luck_direction"])
