@@ -2,22 +2,131 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
 import html
+import json
 import os
 import secrets
 import uuid
+from pathlib import Path
 
 import streamlit as st
 
 from engine.astronomy import AstronomyCalculationError
 from engine.caster import CastingError
+from engine.conversation import (
+    append_session_turn,
+    session_memory_is_active,
+    start_session_memory,
+)
 from engine.guardrails import GuardrailValidationError
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanError
 from engine.qimen import QimenCalculationError, QimenService
 from engine.qimen_plain_language import summarize_asking_chart, summarize_lifelong_chart
 from engine.tracker import AuditTracker
-from main import run_divination_pipeline
+from main import (
+    restore_divination_result,
+    retry_divination_interpretation,
+    run_divination_pipeline,
+)
+
+
+def render_cyber_hero() -> None:
+    image_path = Path(__file__).resolve().parent / "assets" / "yi-cyber-hero.webp"
+    image_data = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    st.iframe(
+        f"""
+        <!doctype html>
+        <html lang="zh-CN">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <style>
+            * {{ box-sizing: border-box; }}
+            html, body {{ margin: 0; background: transparent; color: #f4efdf; }}
+            body {{ font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; }}
+            .hero {{
+              position: relative; height: 318px; overflow: hidden; border-radius: 14px;
+              background: #080c18; isolation: isolate;
+            }}
+            .hero::after {{
+              content: ""; position: absolute; inset: 0; z-index: -1;
+              background: linear-gradient(90deg, rgba(5,8,16,.98) 0%, rgba(5,8,16,.89) 36%,
+                rgba(5,8,16,.28) 68%, rgba(5,8,16,.06) 100%);
+            }}
+            .hero-image {{
+              position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%;
+              object-fit: cover; object-position: center; transform-origin: 70% 50%;
+              will-change: transform;
+            }}
+            .content {{
+              position: relative; display: flex; flex-direction: column; justify-content: center;
+              width: min(650px, 64%); height: 100%; padding: 32px 38px;
+            }}
+            .system-state {{
+              display: flex; align-items: center; gap: 9px; color: #e6ca78;
+              font-size: 12px; font-weight: 800; letter-spacing: .13em;
+            }}
+            .signal {{ width: 7px; height: 7px; border-radius: 50%; background: #6fa0ff; box-shadow: 0 0 12px #6fa0ff; }}
+            h1 {{
+              margin: 13px 0 7px; font-family: "Noto Serif SC", "Songti SC", STSong, serif;
+              color: #fff9e8; font-size: 48px; line-height: 1.08; letter-spacing: .04em; font-weight: 850;
+            }}
+            .subtitle {{ margin: 0; color: #d1d5df; font-size: 15px; line-height: 1.75; max-width: 38em; }}
+            .protocols {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }}
+            .protocols span {{
+              padding: 6px 10px; border-radius: 999px; background: rgba(8,13,27,.68);
+              color: #d7dbe5; font-size: 11px; border: 1px solid rgba(226,196,111,.28);
+            }}
+            .protocols strong {{ color: #e6ca78; font-weight: 800; }}
+            @media (max-width: 720px) {{
+              .hero {{ height: 300px; }}
+              .content {{ width: 88%; padding: 25px 24px; }}
+              h1 {{ font-size: 37px; }}
+              .subtitle {{ font-size: 14px; }}
+              .hero-image {{ object-position: 64% center; opacity: .62; }}
+            }}
+            @media (prefers-reduced-motion: reduce) {{ .hero-image {{ will-change: auto; }} }}
+          </style>
+        </head>
+        <body>
+          <section class="hero" aria-label="数智易学产品介绍">
+            <img class="hero-image" src="data:image/webp;base64,{image_data}" alt="深色青铜易经时空仪器">
+            <div class="content">
+              <div class="system-state"><span class="signal"></span>RULE ENGINE · ONLINE</div>
+              <h1>数智易学</h1>
+              <p class="subtitle">让盘面先确定，让解释后发生。历法、卦象、原典与每次推演均可回看、核验与复盘。</p>
+              <div class="protocols" aria-label="系统能力">
+                <span><strong>64</strong> 卦规则库</span>
+                <span><strong>384</strong> 爻原典</span>
+                <span>真太阳时</span>
+                <span>全链路审计</span>
+              </div>
+            </div>
+          </section>
+          <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+          <script>
+            if (window.gsap) {{
+              const media = gsap.matchMedia();
+              media.add("(prefers-reduced-motion: no-preference)", () => {{
+                gsap.fromTo(".hero-image", {{ scale: 1.01, x: 0 }}, {{
+                  scale: 1.035, x: -5, duration: 9, ease: "sine.inOut", repeat: -1, yoyo: true
+                }});
+                gsap.from(".content > *", {{
+                  y: 12, autoAlpha: .25, duration: .7, stagger: .08, ease: "power3.out"
+                }});
+                gsap.to(".signal", {{ autoAlpha: .38, duration: 1.1, repeat: -1, yoyo: true, ease: "sine.inOut" }});
+              }});
+            }}
+          </script>
+        </body>
+        </html>
+        """,
+        height=326,
+        width="stretch",
+        tab_index=-1,
+    )
 
 
 st.set_page_config(page_title="数智易学", page_icon="☯️", layout="wide")
@@ -25,18 +134,21 @@ st.markdown(
     """
     <style>
     :root {
-        --ink: #f5f0df;
-        --muted: #a9afc0;
-        --night: #070914;
-        --line: rgba(196, 168, 103, .26);
-        --gold: #e8c977;
-        --gold-strong: #f2d47f;
-        --blue: #5b8cff;
+        --ink: #f2ecdc;
+        --muted: #adb5c6;
+        --night: #050711;
+        --surface: #0a0f1d;
+        --surface-raised: #0e1527;
+        --line: rgba(205, 178, 105, .24);
+        --gold: #d9bd6e;
+        --gold-strong: #ebcf7c;
+        --blue: #6f9fff;
+        --success: #85d5aa;
     }
     .stApp {
         background:
-            radial-gradient(circle at 82% 8%, rgba(61, 82, 157, .20), transparent 28rem),
-            radial-gradient(circle at 18% 72%, rgba(62, 45, 107, .13), transparent 32rem),
+            radial-gradient(circle at 84% 4%, rgba(56, 81, 148, .18), transparent 30rem),
+            radial-gradient(circle at 9% 78%, rgba(103, 75, 36, .10), transparent 30rem),
             var(--night);
         color: var(--ink);
     }
@@ -51,7 +163,7 @@ st.markdown(
         width: 100%;
     }
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0b1022 0%, #080b16 100%);
+        background: #080c17;
         border-right: 1px solid var(--line);
     }
     [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 1.5rem; }
@@ -67,14 +179,7 @@ st.markdown(
         border-bottom: 1px solid var(--line);
         margin-bottom: 1.15rem;
     }
-    .ui-eyebrow, .section-kicker {
-        color: var(--gold);
-        font-size: .75rem;
-        font-weight: 800;
-        letter-spacing: .18em;
-        text-transform: uppercase;
-        margin-bottom: .55rem;
-    }
+    iframe { border: 0; }
     .ui-hero h1 {
         font-size: clamp(2.15rem, 5vw, 4rem);
         line-height: 1.08;
@@ -103,12 +208,12 @@ st.markdown(
         margin-bottom: 1rem;
     }
     .status-pill {
-        border: 1px solid var(--line);
+        border: 1px solid rgba(205, 178, 105, .22);
         border-radius: 10px;
         padding: .7rem .8rem;
         margin-top: .7rem;
         color: var(--gold);
-        background: rgba(232, 201, 119, .06);
+        background: rgba(217, 189, 110, .055);
         font-size: .86rem;
         font-weight: 700;
     }
@@ -125,14 +230,26 @@ st.markdown(
     }
     .stTabs [aria-selected="true"] {
         color: var(--gold-strong) !important;
-        background: rgba(232, 201, 119, .06);
+        background: rgba(217, 189, 110, .055);
     }
-    .stTabs [data-baseweb="tab-highlight"] { background-color: var(--gold) !important; }
+    .stTabs [data-baseweb="tab-highlight"] { background-color: var(--blue) !important; }
+    [data-testid="stTab"] { color: #b8bdca; }
+    [data-testid="stTab"][aria-selected="true"] {
+        color: var(--gold-strong) !important;
+        background: rgba(217, 189, 110, .055);
+    }
+    .react-aria-SelectionIndicator { background-color: var(--blue) !important; }
+    [data-testid="stRadioOption"][data-selected="true"] > div > div > div:nth-child(1) {
+        background: var(--blue) !important;
+    }
+    [data-testid="stRadioOption"][data-selected="true"] > div > div > div:nth-child(1) > div {
+        background: #ffffff !important;
+    }
     [data-testid="stVerticalBlockBorderWrapper"] {
-        background: linear-gradient(145deg, rgba(17, 24, 49, .90), rgba(10, 14, 29, .90));
+        background: rgba(10, 15, 29, .92);
         border-color: var(--line) !important;
-        border-radius: 16px !important;
-        box-shadow: 0 18px 55px rgba(0, 0, 0, .18);
+        border-radius: 14px !important;
+        box-shadow: none;
     }
     [data-testid="stTextInput"] input,
     [data-testid="stNumberInput"] input,
@@ -143,19 +260,28 @@ st.markdown(
         border-color: rgba(196, 168, 103, .22) !important;
     }
     [data-testid="stTextInput"] input::placeholder,
-    [data-testid="stTextArea"] textarea::placeholder { color: #757d91; }
-    [data-testid="stBaseButton-primary"], .stButton > button {
-        border: 1px solid rgba(232, 201, 119, .64) !important;
+    [data-testid="stTextArea"] textarea::placeholder { color: #9aa2b5; }
+    .stButton > button {
+        border: 1px solid rgba(134, 154, 194, .32) !important;
         border-radius: 10px !important;
-        background: linear-gradient(135deg, #efd487, #c9a54f) !important;
-        color: #11131b !important;
-        font-weight: 800 !important;
+        background: #10182a !important;
+        color: #dbe2ef !important;
+        font-weight: 750 !important;
         min-height: 2.8rem;
-        box-shadow: 0 8px 25px rgba(201, 165, 79, .15);
+        box-shadow: none;
+        transition: transform .18s cubic-bezier(.22,1,.36,1), background-color .18s ease;
     }
-    .stButton > button:hover { filter: brightness(1.06); transform: translateY(-1px); }
+    [data-testid="stBaseButton-primary"] {
+        border-color: rgba(217, 189, 110, .68) !important;
+        background: #d6b964 !important;
+        color: #10131c !important;
+        font-weight: 850 !important;
+    }
+    .stButton > button:hover { background: #16213a !important; transform: translateY(-1px); }
+    [data-testid="stBaseButton-primary"]:hover { background: #e0c675 !important; }
+    .stButton > button:active { transform: translateY(0); }
     [data-testid="stMetric"] {
-        background: rgba(14, 20, 40, .92);
+        background: rgba(12, 18, 34, .94);
         border: 1px solid var(--line);
         border-radius: 14px;
         padding: .9rem 1rem;
@@ -179,8 +305,10 @@ st.markdown(
     .result-head h2 { margin: 0; font-size: 1.8rem; }
     .result-head p { margin: 0; color: var(--muted); }
     .focus-summary {
-        border-left: 3px solid var(--gold);
-        padding: .2rem 0 .2rem .9rem;
+        border: 1px solid rgba(217, 189, 110, .32);
+        border-radius: 11px;
+        background: rgba(217, 189, 110, .055);
+        padding: .72rem .82rem;
         margin: .8rem 0 1rem;
     }
     .focus-summary strong { color: var(--gold-strong); font-size: 1.08rem; }
@@ -203,13 +331,21 @@ st.markdown(
     .yao-line .state { color: #9ba3b6; font-size: .78rem; text-align: right; }
     .yao-line.focus {
         border-color: var(--gold);
-        background: linear-gradient(90deg, rgba(232, 201, 119, .14), rgba(91, 140, 255, .08));
-        box-shadow: inset 3px 0 0 var(--gold), 0 0 0 1px rgba(232, 201, 119, .08);
+        background: rgba(217, 189, 110, .095);
+        box-shadow: 0 0 0 1px rgba(217, 189, 110, .08);
     }
     .yao-line.moving .symbol { color: #79a2ff; }
-    .section-intro { margin: 1.4rem 0 .9rem; }
+    .section-intro {
+        display: flex; align-items: end; justify-content: space-between; gap: 1rem;
+        margin: 1.6rem 0 1rem; padding-bottom: .8rem; border-bottom: 1px solid rgba(205,178,105,.16);
+    }
     .section-intro h2 { margin: 0 0 .35rem; font-size: 1.55rem; }
     .section-intro p { margin: 0; color: var(--muted); }
+    .section-kicker {
+        flex: none; color: #8daef5; font-size: .72rem; font-weight: 750;
+        letter-spacing: .09em; padding: .32rem .55rem; border-radius: 999px;
+        background: rgba(91,140,255,.09);
+    }
     .form-note {
         color: #8f97aa;
         font-size: .82rem;
@@ -221,9 +357,9 @@ st.markdown(
     .plain-conclusion {
         margin: .7rem 0 1rem;
         padding: 1rem 1.05rem;
-        border-left: 4px solid var(--gold);
-        border-radius: 0 12px 12px 0;
-        background: linear-gradient(90deg, rgba(232, 201, 119, .13), rgba(91, 140, 255, .055));
+        border: 1px solid rgba(217, 189, 110, .32);
+        border-radius: 12px;
+        background: rgba(217, 189, 110, .075);
         color: var(--ink);
         font-family: "Noto Serif SC", "Songti SC", serif;
         font-size: 1.12rem;
@@ -234,8 +370,7 @@ st.markdown(
         color: var(--gold);
         font-size: .72rem;
         font-weight: 800;
-        letter-spacing: .13em;
-        text-transform: uppercase;
+        letter-spacing: .06em;
     }
     .coin-rule {
         margin: .65rem 0 .9rem;
@@ -284,11 +419,49 @@ st.markdown(
     }
     .throw-card.latest {
         border-color: var(--gold);
-        box-shadow: inset 3px 0 0 var(--gold);
+        background: rgba(217, 189, 110, .075);
     }
     .throw-card.latest .coin-face { animation: coin-reveal .72s cubic-bezier(.2,.8,.2,1); }
     .throw-card.latest .coin-face:nth-child(2) { animation-delay: .08s; }
     .throw-card.latest .coin-face:nth-child(3) { animation-delay: .16s; }
+    .source-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+        margin: .55rem 0 1rem;
+    }
+    .source-badge {
+        border-radius: 999px;
+        padding: .3rem .62rem;
+        background: rgba(91, 140, 255, .11);
+        color: #c9d8ff;
+        font-size: .76rem;
+        font-weight: 750;
+    }
+    .source-badge.classic { background: rgba(232, 201, 119, .11); color: var(--gold-strong); }
+    .source-badge.local { background: rgba(92, 184, 136, .12); color: #aee5c7; }
+    .source-badge.ai { background: rgba(166, 112, 224, .13); color: #dbc4f6; }
+    .relation-list { display: grid; gap: .2rem; margin: .4rem 0 1rem; }
+    .relation-row {
+        display: grid;
+        grid-template-columns: 4.4rem minmax(8rem, 1fr) minmax(12rem, 1.6fr);
+        gap: .8rem;
+        align-items: baseline;
+        padding: .7rem .1rem;
+        border-bottom: 1px solid rgba(196, 168, 103, .14);
+    }
+    .relation-row:last-child { border-bottom: 0; }
+    .relation-label { color: var(--gold); font-weight: 800; }
+    .relation-name { color: var(--ink); font-weight: 750; }
+    .relation-meaning { color: #b9bfce; font-size: .86rem; }
+    .conversation-turn {
+        margin: .65rem 0;
+        padding: .8rem .9rem;
+        border-radius: 12px;
+        background: rgba(91, 140, 255, .075);
+    }
+    .conversation-turn strong { color: #c9d8ff; }
+    .conversation-answer { color: #d8dce6; line-height: 1.7; margin-top: .35rem; }
     @keyframes coin-reveal {
         0% { opacity: 0; transform: translateY(-1.2rem) rotateY(0deg) scale(.78); }
         70% { opacity: 1; transform: translateY(.12rem) rotateY(540deg) scale(1.05); }
@@ -327,20 +500,15 @@ st.markdown(
         .result-head { align-items: flex-start; flex-direction: column; }
         .yao-line { grid-template-columns: 2.2rem 3.2rem 1fr; }
         .yao-line .state { grid-column: 2 / -1; text-align: left; }
+        .relation-row { grid-template-columns: 3.8rem 1fr; }
+        .relation-meaning { grid-column: 2; }
         [data-testid="stMetric"] { padding: .7rem .75rem; }
     }
     </style>
-    <section class="ui-hero">
-      <div class="ui-eyebrow">DETERMINISTIC DIVINATION ENGINE</div>
-      <h1>数智易学</h1>
-      <p class="hero-copy">让盘面先确定，让解释后发生。原典、规则与每次推演都有据可查。</p>
-      <div class="hero-chips">
-        <span>64 卦规则库</span><span>真太阳时</span><span>六爻与奇门</span><span>全链路审计</span>
-      </div>
-    </section>
     """,
     unsafe_allow_html=True,
 )
+render_cyber_hero()
 
 
 COIN_LINE_LABELS = {
@@ -354,7 +522,9 @@ LINE_POSITION_LABELS = {1: "初爻", 2: "二爻", 3: "三爻", 4: "四爻", 5: "
 
 @st.cache_resource
 def get_tracker() -> AuditTracker:
-    return AuditTracker()
+    audit = AuditTracker()
+    audit.purge_expired()
+    return audit
 
 
 def get_deepseek_key() -> str:
@@ -372,13 +542,66 @@ def local_datetime(date_value: dt.date, time_value: dt.time, offset: float) -> d
     )
 
 
+def activate_sixyao_result(result: dict, followups: list[dict] | None = None) -> None:
+    """把一条六爻结果设为当前短期会话，不创建跨会话用户画像。"""
+    st.session_state["sixyao_result"] = result
+    memory = start_session_memory(result["run_id"], result["ai_context"]["user_query"])
+    restored_turns = [
+        {
+            "question": item["user_question"],
+            "answer": item["response"],
+            "intent": item["intent"],
+        }
+        for item in (followups or [])[-8:]
+    ]
+    memory["turns"] = restored_turns
+    st.session_state["sixyao_conversation_memory"] = memory
+    st.session_state["sixyao_followups"] = list(followups or [])
+
+
+def run_and_activate_sixyao(query: str, casting_input: dict, tracker: AuditTracker) -> None:
+    with st.spinner("正在排盘、校验并生成受约束解读…"):
+        result = run_divination_pipeline(
+            query,
+            casting_input,
+            interpreter=LLMInterpreter(api_key=get_deepseek_key()),
+            tracker=tracker,
+        )
+    activate_sixyao_result(result)
+
+
+def record_as_markdown(record: dict) -> str:
+    """生成可阅读、可离线保存的单次完整报告。"""
+    feedback = record.get("feedback", {})
+    return "\n".join(
+        (
+            f"# 数智易学运行报告 · {record['run_id'][:8]}",
+            "",
+            f"- 完整 Run ID：`{record['run_id']}`",
+            f"- 创建时间：{record['created_at']}",
+            f"- 占问事项：{record['user_query']}",
+            f"- 事后验证：{feedback.get('status', 'pending')}",
+            f"- 验证说明：{feedback.get('notes') or '无'}",
+            "",
+            "## 解读",
+            "",
+            record["llm_response"],
+            "",
+            "## 完整审计数据",
+            "",
+            "```json",
+            json.dumps(record, ensure_ascii=False, indent=2),
+            "```",
+        )
+    )
+
+
 def render_section_intro(kicker: str, title: str, description: str) -> None:
     st.markdown(
         f"""
         <section class="section-intro">
-          <div class="section-kicker">{html.escape(kicker)}</div>
-          <h2>{html.escape(title)}</h2>
-          <p>{html.escape(description)}</p>
+          <div><h2>{html.escape(title)}</h2><p>{html.escape(description)}</p></div>
+          <span class="section-kicker">{html.escape(kicker)}</span>
         </section>
         """,
         unsafe_allow_html=True,
@@ -457,6 +680,122 @@ def render_plain_conclusion(summary: dict) -> None:
             for basis in summary["basis"]:
                 st.markdown(f"- {basis}")
             st.caption(summary["disclaimer"])
+
+
+def render_provenance(result: dict) -> None:
+    metadata = result.get("llm_metadata", {})
+    ai_label = "AI 生成解释" if metadata.get("ai_generated") else "未使用 AI 生成"
+    ai_class = "ai" if metadata.get("ai_generated") else "local"
+    st.markdown(
+        '<div class="source-legend" aria-label="内容来源分层">'
+        '<span class="source-badge">确定性计算</span>'
+        '<span class="source-badge classic">已核验原典</span>'
+        '<span class="source-badge local">本地规则转译</span>'
+        f'<span class="source-badge {ai_class}">{html.escape(ai_label)}</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_related_hexagrams(paipan: dict) -> None:
+    relations = paipan["related_hexagrams"]
+    rows = []
+    for relation in ("original", "changed", "mutual", "reversed", "opposite"):
+        item = relations[relation]
+        if item is None:
+            label, name, meaning = "变卦", "无变卦", "本局无动爻，以本卦整体为主"
+        else:
+            label, name, meaning = item["label"], f"{item['symbol']} {item['name']}", item["meaning"]
+            if relation != "original" and item["is_same_as_original"]:
+                meaning += "；与本卦相同"
+        rows.append(
+            '<div class="relation-row">'
+            f'<span class="relation-label">{html.escape(label)}</span>'
+            f'<span class="relation-name">{html.escape(name)}</span>'
+            f'<span class="relation-meaning">{html.escape(meaning)}</span>'
+            '</div>'
+        )
+    with st.expander("本、变、互、综、错五卦关系", expanded=True):
+        st.markdown('<div class="relation-list">' + "".join(rows) + '</div>', unsafe_allow_html=True)
+        st.caption("五卦均由六爻编码确定性计算，再从同一份已核验六十四卦数据库映射；模型不参与卦象计算。")
+
+
+def process_follow_up(result: dict, question: str, tracker: AuditTracker) -> None:
+    memory = st.session_state.get("sixyao_conversation_memory")
+    if (
+        not session_memory_is_active(memory)
+        or memory.get("active_run_id") != result["run_id"]
+    ):
+        memory = start_session_memory(result["run_id"], result["ai_context"]["user_query"])
+    interpreter = LLMInterpreter(api_key=get_deepseek_key())
+    with st.spinner("正在依据当前盘面回答…"):
+        follow_up = interpreter.answer_follow_up(
+            result["ai_context"],
+            question,
+            result["llm_response"],
+            memory.get("turns", []),
+        )
+    tracker.save_follow_up(
+        result["run_id"],
+        question,
+        follow_up["intent"],
+        follow_up["answer"],
+        interpreter.last_metadata,
+    )
+    memory = append_session_turn(
+        memory, question, follow_up["answer"], follow_up["intent"]
+    )
+    st.session_state["sixyao_conversation_memory"] = memory
+    st.session_state.setdefault("sixyao_followups", []).append(
+        {
+            "user_question": question,
+            "intent": follow_up["intent"],
+            "response": follow_up["answer"],
+            "llm_metadata": dict(interpreter.last_metadata),
+        }
+    )
+
+
+def render_follow_up(result: dict, tracker: AuditTracker) -> None:
+    st.markdown("### 围绕本次结果继续问")
+    st.caption("追问只解释当前 Run ID 的已核验盘面；30 分钟无操作后会话上下文自动失效。")
+    quick_prompts = {
+        "为什么这样判断": "这条结论为什么这样判断？",
+        "现在怎么做": "结合当前盘面，现在可以怎么做？",
+        "需要留意什么": "当前最需要留意的风险是什么？",
+        "只讲核心爻": "只解释这次的核心爻。",
+        "再说得直白些": "请用更直白的话再说一次。",
+    }
+    quick_question = None
+    for column, (label, question) in zip(st.columns(5), quick_prompts.items()):
+        if column.button(label, key=f"followup_{result['run_id']}_{label}", use_container_width=True):
+            quick_question = question
+    custom_question = st.text_input(
+        "自定义追问",
+        placeholder="例如：这个风险具体对应盘面的哪一项？",
+        key=f"custom_followup_{result['run_id']}",
+    )
+    if st.button("发送追问", key=f"send_followup_{result['run_id']}"):
+        quick_question = custom_question
+    if quick_question is not None:
+        if not quick_question.strip():
+            st.warning("请先输入追问内容。")
+        else:
+            try:
+                process_follow_up(result, quick_question, tracker)
+            except (ValueError, LLMInterpretationError) as error:
+                st.error(f"追问未完成：{error}")
+
+    for turn in st.session_state.get("sixyao_followups", []):
+        source = "AI 生成解释" if turn.get("llm_metadata", {}).get("ai_generated") else "本地规则转译"
+        st.markdown(
+            '<div class="conversation-turn">'
+            f'<strong>你问：{html.escape(turn["user_question"])}</strong>'
+            f'<div class="conversation-answer">{html.escape(turn["response"]).replace(chr(10), "<br>")}</div>'
+            f'<span class="source-badge local">{html.escape(source)}</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_qimen_chart(chart: dict) -> None:
@@ -641,17 +980,54 @@ with sixyao_tab:
             use_container_width=True,
             disabled=not can_cast,
         ):
-            try:
-                with st.spinner("正在排盘、校验并生成受约束解读…"):
-                    st.session_state["sixyao_result"] = run_divination_pipeline(
-                        query,
-                        casting_input,
-                        interpreter=LLMInterpreter(api_key=get_deepseek_key()),
-                        tracker=tracker,
-                    )
-            except (ValueError, CastingError, AstronomyCalculationError, PaipanError,
-                    GuardrailValidationError, LLMInterpretationError) as error:
-                st.error(f"系统已中止：{error}")
+            if not query.strip():
+                st.warning("请先写明占问事项，建议一次只问一件事。")
+            else:
+                similar = tracker.find_similar_recent(query, kind="sixyao")
+                if similar:
+                    st.session_state["repeat_divination_candidate"] = {
+                        "new_query": query.strip(),
+                        "run_id": similar["run_id"],
+                        "previous_query": similar["user_query"],
+                        "created_at": similar["created_at"],
+                        "similarity": similar["similarity"],
+                    }
+                else:
+                    try:
+                        run_and_activate_sixyao(query, casting_input, tracker)
+                    except (ValueError, CastingError, AstronomyCalculationError, PaipanError,
+                            GuardrailValidationError, LLMInterpretationError) as error:
+                        st.error(f"系统已中止：{error}")
+
+        repeat_candidate = st.session_state.get("repeat_divination_candidate")
+        if repeat_candidate and repeat_candidate.get("new_query") != query.strip():
+            st.session_state.pop("repeat_divination_candidate", None)
+            repeat_candidate = None
+        if repeat_candidate:
+            st.warning(
+                f"最近24小时内已有相似占问：“{repeat_candidate['previous_query']}”"
+                f"（{repeat_candidate['created_at']}）。建议先回看原结果，避免反复起卦只挑选满意答案。"
+            )
+            review_column, continue_column = st.columns(2)
+            if review_column.button("查看上次结果", use_container_width=True):
+                previous = tracker.get_run(repeat_candidate["run_id"])
+                if previous:
+                    try:
+                        activate_sixyao_result(
+                            restore_divination_result(previous), previous.get("followups", [])
+                        )
+                        st.session_state.pop("repeat_divination_candidate", None)
+                        st.rerun()
+                    except ValueError as error:
+                        st.error(str(error))
+            if continue_column.button("条件已变化，仍然重新起卦", use_container_width=True):
+                try:
+                    run_and_activate_sixyao(query, casting_input, tracker)
+                    st.session_state.pop("repeat_divination_candidate", None)
+                    st.rerun()
+                except (ValueError, CastingError, AstronomyCalculationError, PaipanError,
+                        GuardrailValidationError, LLMInterpretationError) as error:
+                    st.error(f"系统已中止：{error}")
 
     result = st.session_state.get("sixyao_result")
     if result:
@@ -672,6 +1048,8 @@ with sixyao_tab:
         columns[1].metric("变卦", changed_name)
         columns[2].metric("日柱", calendar["day_ganzhi"])
         columns[3].metric("旬空", "、".join(calendar["xunkong"]))
+        render_provenance(result)
+        render_related_hexagrams(paipan)
         focus = paipan["focus_analysis"]["primary_focus"]
         chart_left, chart_right = st.columns([.72, 1.28], gap="large")
         with chart_left:
@@ -699,22 +1077,48 @@ with sixyao_tab:
         report_left, audit_right = st.columns([1.6, .7], gap="large")
         with report_left:
             with st.container(border=True):
-                st.markdown('<div class="audit-label">RULE-GROUNDED INTERPRETATION</div>', unsafe_allow_html=True)
+                st.markdown('<div class="audit-label">来源分层解读</div>', unsafe_allow_html=True)
                 st.markdown("### 解读报告")
+                if result.get("interpretation_status") == "failed":
+                    st.warning("确定性盘面已保存，但 DeepSeek 解释失败。重试只会更新解释，不会重新起卦。")
                 st.markdown(result["llm_response"])
         with audit_right:
             with st.container(border=True):
                 st.markdown('<div class="audit-label">证据与留痕</div>', unsafe_allow_html=True)
-                if result["llm_metadata"]["mode"] == "offline":
+                if result.get("interpretation_status") == "failed":
+                    st.error("AI 解释待重试")
+                    if st.button("只重试 DeepSeek 解释", key=f"retry_{result['run_id']}", use_container_width=True):
+                        try:
+                            with st.spinner("正在重试解释，盘面保持不变…"):
+                                retried = retry_divination_interpretation(
+                                    result,
+                                    interpreter=LLMInterpreter(api_key=get_deepseek_key()),
+                                    tracker=tracker,
+                                )
+                            activate_sixyao_result(
+                                retried, st.session_state.get("sixyao_followups", [])
+                            )
+                            st.rerun()
+                        except (ValueError, LLMInterpretationError) as error:
+                            st.error(f"解释仍未完成：{error}")
+                elif result["llm_metadata"]["mode"] == "offline":
                     st.info("当前为离线模式，仅展示确定性盘面与已核验原典。")
                 else:
                     st.success("DeepSeek 解读已生成。")
+                source = paipan.get("source", {})
+                if source.get("url"):
+                    st.markdown(f"[查看原典版本：{source.get('title', '《周易》')}]({source['url']})")
+                    st.caption(
+                        f"修订号 {source.get('revision_id')} · {source.get('revision_timestamp')} · "
+                        f"文本版本 {source.get('text_variant', '未标注')}"
+                    )
                 with st.expander("原典与排盘数据"):
                     st.write("卦辞：", paipan["judgement"])
                     st.json(paipan)
                 with st.expander("规则校验轨迹"):
                     st.json(result["guardrail_log"])
                 st.caption(f"完整 Run ID：{result['run_id']}")
+        render_follow_up(result, tracker)
 
 with asking_tab:
     render_section_intro(
@@ -808,7 +1212,46 @@ with history_tab:
         "历史复盘",
         "把当时的盘面、解读与后来发生的事实放回同一条记录。",
     )
-    st.caption("审计记录保存在 SQLite；Streamlit Cloud 的本地磁盘重启后可能重置。")
+    st.caption(
+        "审计记录保存在 SQLite；默认保留365天。Streamlit Cloud 本地磁盘重启后仍可能重置，"
+        "重要记录请及时导出。"
+    )
+    with st.expander("历史数据保留与清理"):
+        setting_column, action_column = st.columns([1.2, 1])
+        retention_days = setting_column.number_input(
+            "自动保留天数",
+            min_value=30,
+            max_value=3650,
+            value=tracker.get_retention_days(),
+            step=30,
+            help="超过保留期的记录会在应用启动或保存设置时惰性清理。",
+        )
+        if setting_column.button("保存保留期"):
+            tracker.set_retention_days(int(retention_days))
+            removed = tracker.purge_expired()
+            st.success(f"保留期已更新；本次清理 {removed} 条过期记录。")
+        if action_column.button("清空全部历史", type="secondary"):
+            st.session_state["confirm_clear_history"] = True
+        if st.session_state.get("confirm_clear_history"):
+            st.warning("这会永久删除全部运行、反馈和追问记录。建议先逐条导出重要报告。")
+            clear_confirmed = st.checkbox("我确认清空全部历史", key="clear_history_checkbox")
+            confirm_column, cancel_column = st.columns(2)
+            if confirm_column.button(
+                "永久清空",
+                disabled=not clear_confirmed,
+                use_container_width=True,
+            ):
+                count = tracker.clear_history()
+                for key in (
+                    "confirm_clear_history", "sixyao_result", "sixyao_followups",
+                    "sixyao_conversation_memory", "repeat_divination_candidate",
+                ):
+                    st.session_state.pop(key, None)
+                st.success(f"已清空 {count} 条历史记录。")
+                st.rerun()
+            if cancel_column.button("取消", use_container_width=True):
+                st.session_state.pop("confirm_clear_history", None)
+                st.rerun()
     history = tracker.list_history(limit=30)
     if not history:
         st.info("暂无历史记录。")
@@ -816,6 +1259,7 @@ with history_tab:
     status_to_label = {value: key for key, value in label_to_status.items()}
     for item in history:
         with st.expander(f"{item['created_at']} · {item['user_query']} · {item['run_id'][:8]}"):
+            full_record = tracker.get_run(item["run_id"])
             st.markdown(item["llm_response"])
             current = status_to_label[item["feedback"]["status"]]
             status = st.selectbox(
@@ -829,3 +1273,58 @@ with history_tab:
             if st.button("保存反馈", key=f"feedback_save_{item['run_id']}"):
                 tracker.record_user_feedback(item["run_id"], label_to_status[status], notes)
                 st.success("反馈已保存。")
+            if full_record:
+                export_column, json_column, restore_column = st.columns(3)
+                export_column.download_button(
+                    "导出 Markdown",
+                    data=record_as_markdown(full_record),
+                    file_name=f"divination-{item['run_id'][:8]}.md",
+                    mime="text/markdown",
+                    key=f"export_md_{item['run_id']}",
+                    use_container_width=True,
+                )
+                json_column.download_button(
+                    "导出 JSON",
+                    data=json.dumps(full_record, ensure_ascii=False, indent=2),
+                    file_name=f"divination-{item['run_id'][:8]}.json",
+                    mime="application/json",
+                    key=f"export_json_{item['run_id']}",
+                    use_container_width=True,
+                )
+                if "paipan_summary" in full_record.get("ai_context", {}):
+                    if restore_column.button(
+                        "作为当前结果",
+                        key=f"restore_{item['run_id']}",
+                        use_container_width=True,
+                    ):
+                        activate_sixyao_result(
+                            restore_divination_result(full_record),
+                            full_record.get("followups", []),
+                        )
+                        st.info("已恢复为当前六爻结果，请切换到“六爻问事”继续追问。")
+
+            if st.button("删除这条记录", key=f"delete_{item['run_id']}"):
+                st.session_state["confirm_delete_run"] = item["run_id"]
+            if st.session_state.get("confirm_delete_run") == item["run_id"]:
+                st.warning("删除后，该记录的反馈和追问也会一并永久删除。")
+                delete_column, cancel_column = st.columns(2)
+                if delete_column.button(
+                    "确认永久删除",
+                    key=f"confirm_delete_{item['run_id']}",
+                    use_container_width=True,
+                ):
+                    tracker.delete_run(item["run_id"])
+                    st.session_state.pop("confirm_delete_run", None)
+                    if st.session_state.get("sixyao_result", {}).get("run_id") == item["run_id"]:
+                        for key in (
+                            "sixyao_result", "sixyao_followups", "sixyao_conversation_memory"
+                        ):
+                            st.session_state.pop(key, None)
+                    st.rerun()
+                if cancel_column.button(
+                    "取消删除",
+                    key=f"cancel_delete_{item['run_id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state.pop("confirm_delete_run", None)
+                    st.rerun()

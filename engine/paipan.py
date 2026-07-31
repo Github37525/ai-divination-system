@@ -10,6 +10,15 @@ from typing import Any, Dict, List, Optional, Union
 from .config import CONTROLS, GENERATES, SIX_RELATIVES, TRIGRAM_BITS
 
 
+HEXAGRAM_RELATIONS = {
+    "original": ("本卦", "当前状态"),
+    "changed": ("变卦", "动爻变化后的发展方向"),
+    "mutual": ("互卦", "由二至五爻组成的内在过程"),
+    "reversed": ("综卦", "上下倒置后的换位视角"),
+    "opposite": ("错卦", "六爻阴阳全反的相反条件"),
+}
+
+
 class PaipanError(ValueError):
     """排盘所需规则或原典数据缺失。"""
 
@@ -27,6 +36,57 @@ class PaipanEngine:
                 f"{role}卦码 {hexagram_code} 缺少权威原典数据，已按防幻觉规则中止排盘。"
             )
         return hexagram
+
+    @staticmethod
+    def derive_related_codes(
+        hexagram_code: str,
+        changed_hexagram_code: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        """按初爻到上爻编码确定性计算本、变、互、综、错五种关系卦。"""
+        for role, code in (("本", hexagram_code), ("变", changed_hexagram_code)):
+            if code is not None and (
+                not isinstance(code, str)
+                or len(code) != 6
+                or set(code) - {"0", "1"}
+            ):
+                raise PaipanError(f"{role}卦码不合法，无法计算关系卦。")
+        return {
+            "original": hexagram_code,
+            "changed": changed_hexagram_code,
+            "mutual": hexagram_code[1:4] + hexagram_code[2:5],
+            "reversed": hexagram_code[::-1],
+            "opposite": "".join("0" if bit == "1" else "1" for bit in hexagram_code),
+        }
+
+    def _build_related_hexagrams(
+        self,
+        hexagram_code: str,
+        changed_hexagram_code: Optional[str],
+    ) -> Dict[str, Optional[Dict[str, Any]]]:
+        codes = self.derive_related_codes(hexagram_code, changed_hexagram_code)
+        result: Dict[str, Optional[Dict[str, Any]]] = {}
+        for relation, code in codes.items():
+            if code is None:
+                result[relation] = None
+                continue
+            data = self._get_hexagram(code, HEXAGRAM_RELATIONS[relation][0])
+            label, meaning = HEXAGRAM_RELATIONS[relation]
+            result[relation] = {
+                "relation": relation,
+                "label": label,
+                "meaning": meaning,
+                "hexagram_code": code,
+                "king_wen_number": data.get("king_wen_number"),
+                "symbol": data.get("symbol"),
+                "name": data.get("name"),
+                "upper_trigram": data.get("upper_trigram"),
+                "lower_trigram": data.get("lower_trigram"),
+                "judgement": data.get("judgement"),
+                "source": data.get("source"),
+                "is_same_as_original": code == hexagram_code,
+                "provenance": "deterministic_code_and_verified_database",
+            }
+        return result
 
     def extract_focus_line(
         self,
@@ -251,6 +311,7 @@ class PaipanEngine:
             "image": hex_data.get("image"),
             "moving_lines": moving_lines,
             "changed_hexagram": changed_hexagram,
+            "related_hexagrams": self._build_related_hexagrams(hex_code, changed_code),
             "focus_analysis": focus_info,
             "focus_text": focus_text,
             "special_line": special_line,

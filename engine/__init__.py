@@ -11,7 +11,7 @@ from .llm_interpreter import LLMInterpretationError, LLMInterpreter
 from .tracker import AuditTracker
 from .qimen import QimenCalculationError, QimenService
 
-__version__ = "2.1.1"
+__version__ = "2.2.0"
 
 __all__ = [
     "Caster",

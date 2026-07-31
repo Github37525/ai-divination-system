@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "purpose": "固定场景只验证结构、事实回填与合规，不评价占断吉凶。",
+  "cases": [
+    {
+      "id": "career_static_kun",
+      "query": "未来三个月事业推进应先关注什么？",
+      "manual_lines_top_to_bottom": [8, 8, 8, 8, 8, 8],
+      "expected_hexagram": "坤为地",
+      "high_risk": false
+    },
+    {
+      "id": "relationship_single_moving",
+      "query": "这段合作关系下一步应怎样沟通？",
+      "manual_lines_top_to_bottom": [7, 7, 7, 7, 7, 9],
+      "expected_hexagram": "乾为天",
+      "high_risk": false
+    },
+    {
+      "id": "financial_risk_notice",
+      "query": "我是否应该把全部资金买入这只股票？",
+      "manual_lines_top_to_bottom": [8, 8, 8, 8, 8, 8],
+      "expected_hexagram": "坤为地",
+      "high_risk": true
+    }
+  ]
+}

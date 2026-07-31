@@ -6,6 +6,8 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from .conversation import build_offline_follow_up, classify_follow_up, recent_questions
+
 
 DISCLAIMER = "【免责声明】本解读基于传统易学典籍与逻辑模型推演，仅供文化体验与决策参考。"
 HIGH_RISK_NOTICE = "本问题可能涉及医疗、法律、金融或人身安全等高风险事项，请同时咨询相应持牌专业人士。"
@@ -42,6 +44,8 @@ class LLMInterpreter:
             "model": self.model_name,
             "mode": "not_called",
             "request_id": None,
+            "ai_generated": False,
+            "content_type": "pending",
         }
 
     def build_system_prompt(self) -> str:
@@ -124,10 +128,7 @@ class LLMInterpreter:
     def _call_model(self, ai_context: Dict[str, Any]) -> Dict[str, str]:
         client = self._get_client()
         if client is None:
-            return {
-                "classic_interpretation": "当前为离线模式，系统仅展示已核验原典，不生成额外典籍解释。",
-                "practical_mapping": "未调用 DeepSeek，系统不会基于缺失的模型结果推断现实结论。",
-            }
+            return self._offline_payload()
 
         messages = [
             {"role": "system", "content": self.build_system_prompt()},
@@ -150,6 +151,8 @@ class LLMInterpreter:
                     "model": self.model_name,
                     "mode": "api",
                     "request_id": getattr(response, "_request_id", None),
+                    "ai_generated": True,
+                    "content_type": "constrained_interpretation",
                 }
                 return parsed
             except LLMInterpretationError as error:
@@ -162,8 +165,21 @@ class LLMInterpreter:
                         }
                     )
             except Exception as error:
-                raise LLMInterpretationError(f"DeepSeek 请求失败：{type(error).__name__}") from error
+                last_error = error
+                if attempt == 0:
+                    continue
+        if last_error and not isinstance(last_error, LLMInterpretationError):
+            raise LLMInterpretationError(
+                f"DeepSeek 请求失败（已重试）：{type(last_error).__name__}"
+            ) from last_error
         raise LLMInterpretationError(str(last_error) if last_error else "DeepSeek 输出校验失败。")
+
+    @staticmethod
+    def _offline_payload() -> Dict[str, str]:
+        return {
+            "classic_interpretation": "当前为离线模式，系统仅展示已核验原典，不生成额外典籍解释。",
+            "practical_mapping": "未调用 DeepSeek，系统不会基于缺失的模型结果推断现实结论。",
+        }
 
     def _compose_report(
         self, ai_context: Dict[str, Any], model_payload: Dict[str, str]
@@ -201,5 +217,119 @@ class LLMInterpreter:
                 "model": self.model_name,
                 "mode": "offline",
                 "request_id": None,
+                "ai_generated": False,
+                "content_type": "local_rule_translation",
             }
         return self._compose_report(ai_context, payload)
+
+    def failure_report(self, ai_context: Dict[str, Any], error: Exception) -> str:
+        """模型失败时保留完整确定性报告，供页面稍后单独重试解释。"""
+        self.last_metadata = {
+            "provider": "deepseek",
+            "model": self.model_name,
+            "mode": "error",
+            "request_id": None,
+            "ai_generated": False,
+            "content_type": "deterministic_fallback",
+            "error_type": type(error).__name__,
+        }
+        payload = self._offline_payload()
+        payload["practical_mapping"] = (
+            "确定性盘面已经完成并保存，但 DeepSeek 解释暂时失败。你可以稍后只重试解释，"
+            "本次起卦、历法和排盘不会重新计算。"
+        )
+        return self._compose_report(ai_context, payload)
+
+    def build_follow_up_prompt(
+        self,
+        ai_context: Dict[str, Any],
+        question: str,
+        current_report: str,
+        conversation: Optional[list[Dict[str, Any]]] = None,
+    ) -> list[Dict[str, str]]:
+        intent = classify_follow_up(question)
+        payload = {
+            "follow_up_question": question.strip(),
+            "intent": intent,
+            "verified_context": ai_context,
+            "current_report": current_report[:6000],
+            "recent_questions": recent_questions(conversation or []),
+        }
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "你只回答用户对当前已核验盘面的追问。不得重新起卦、修改盘面、补写原典或"
+                    "引入新的预测事实。先直接回答，再简短说明依据；医疗、法律、金融和人身安全"
+                    "问题不得给确定性建议。只返回 JSON 对象 {\"answer\":\"非空字符串\"}，"
+                    "不要输出思维过程。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            },
+        ]
+
+    def answer_follow_up(
+        self,
+        ai_context: Dict[str, Any],
+        question: str,
+        current_report: str,
+        conversation: Optional[list[Dict[str, Any]]] = None,
+    ) -> Dict[str, str]:
+        """回答当前结果的追问；返回意图和答案，便于 UI 与审计共同使用。"""
+        intent = classify_follow_up(question)
+        client = self._get_client()
+        if client is None:
+            self.last_metadata = {
+                "provider": "deepseek",
+                "model": self.model_name,
+                "mode": "offline_followup",
+                "request_id": None,
+                "ai_generated": False,
+                "content_type": "local_followup",
+            }
+            return {
+                "intent": intent,
+                "answer": build_offline_follow_up(ai_context, question, intent),
+            }
+
+        messages = self.build_follow_up_prompt(
+            ai_context, question, current_report, conversation
+        )
+        last_error: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                response = client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
+                    stream=False,
+                )
+                content = response.choices[0].message.content
+                parsed = json.loads(content)
+                answer = parsed.get("answer") if isinstance(parsed, dict) else None
+                if not isinstance(answer, str) or not answer.strip() or len(answer) > 3000:
+                    raise LLMInterpretationError("追问回答字段为空或过长。")
+                if ABSOLUTE_ADVICE_PATTERN.search(answer):
+                    raise LLMInterpretationError("追问回答包含禁止的确定性建议。")
+                self.last_metadata = {
+                    "provider": "deepseek",
+                    "model": self.model_name,
+                    "mode": "api_followup",
+                    "request_id": getattr(response, "_request_id", None),
+                    "ai_generated": True,
+                    "content_type": "constrained_followup",
+                }
+                return {"intent": intent, "answer": answer.strip()}
+            except Exception as error:
+                last_error = error
+                if attempt == 0:
+                    messages.append(
+                        {"role": "user", "content": "只返回包含 answer 的合法 JSON。"}
+                    )
+        raise LLMInterpretationError(
+            f"追问解释失败（已重试）：{type(last_error).__name__}"
+        ) from last_error
