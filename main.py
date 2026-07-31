@@ -3,7 +3,7 @@ main.py
 卜卦系统 Pipeline 执行入口
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from engine.caster import Caster
 from engine.astronomy import AstronomyService
 from engine.paipan import PaipanEngine
@@ -16,18 +16,30 @@ def run_divination_pipeline(user_query: str, casting_input: dict):
     try:
         # Step 1: 输入校验与起卦
         print("[1/5] 执行起卦与边界校验...")
-        cast_result = Caster.cast_manual(casting_input["lines"])
+        cast_mode = casting_input.get("mode", "manual")
+        if cast_mode == "manual":
+            cast_result = Caster.cast_manual(casting_input["lines"])
+        elif cast_mode == "number":
+            cast_result = Caster.cast_number(casting_input["numbers"])
+        else:
+            raise ValueError(f"不支持的起卦模式: {cast_mode}")
         
         # Step 2: 天文历法与真太阳时计算
         print("[2/5] 推算真太阳时与干支历法...")
+        timezone_offset = casting_input.get("timezone_offset_hours", 8.0)
+        local_now = datetime.now(timezone.utc).astimezone(
+            timezone(timedelta(hours=timezone_offset))
+        )
         calendar_data = AstronomyService.get_ganzhi_calendar(
-            dt=datetime.now(), 
-            longitude=casting_input.get("longitude", 120.0)
+            dt=local_now,
+            longitude=casting_input.get("longitude", 120.0),
+            latitude=casting_input.get("latitude"),
+            timezone_offset_hours=timezone_offset,
         )
         
         # Step 3: 装卦与焦点爻提取
         print("[3/5] 构建排盘与提炼焦点爻...")
-        engine = PaipanEngine(db_path="data/hexagrams_db.json")
+        engine = PaipanEngine()
         paipan_data = engine.build_paipan(cast_result, calendar_data)
         
         # Step 4: Guardrails 熔断校验
@@ -46,7 +58,7 @@ def run_divination_pipeline(user_query: str, casting_input: dict):
                 "干支": calendar_data["day_ganzhi"],
                 "焦点爻": paipan_data["focus_analysis"],
                 "卦辞原典": paipan_data["judgement"],
-                "焦点爻辞": paipan_data["lines_detail"][str(paipan_data["focus_analysis"]["primary_focus"])]
+                "焦点爻辞": paipan_data["focus_text"]
             }
         }
         
@@ -60,9 +72,10 @@ def run_divination_pipeline(user_query: str, casting_input: dict):
         print(f"❌ 系统运行异常: {e}")
 
 if __name__ == "__main__":
-    # 模拟前端输入：用户占问跳槽，输入手摇卦（从上到下：6老阴, 7少阳, 8少阴, 7少阳, 7少阳, 9老阳）
+    # 用静坤卦验证完整 Pipeline。
     mock_input = {
-        "lines": [6, 7, 8, 7, 7, 9],
+        "mode": "manual",
+        "lines": [8, 8, 8, 8, 8, 8],
         "longitude": 120.15  # 杭州经度
     }
     run_divination_pipeline(user_query="今年适合跳槽吗？", casting_input=mock_input)

@@ -5,8 +5,8 @@ engine/__init__.py
 """
 
 from .caster import Caster, CastingError
-from .astronomy import AstronomyService
-from .paipan import PaipanEngine
+from .astronomy import AstronomyCalculationError, AstronomyService
+from .paipan import PaipanEngine, PaipanError
 from .guardrails import Guardrails, GuardrailValidationError
 from .llm_interpreter import LLMInterpreter
 from .tracker import AuditTracker
@@ -17,8 +17,10 @@ __version__ = "2.0.0"
 __all__ = [
     "Caster",
     "CastingError",
+    "AstronomyCalculationError",
     "AstronomyService",
     "PaipanEngine",
+    "PaipanError",
     "Guardrails",
     "GuardrailValidationError",
     "LLMInterpreter",

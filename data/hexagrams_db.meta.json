@@ -1,0 +1,27 @@
+{
+  "schema_version": "2.1.0",
+  "generated_at": "2026-07-31T12:23:18.117988+00:00",
+  "record_count": 64,
+  "sha256": "81d4acdbf81352c2bd6b36c5faa778ef76daa059edcd310f8cf32cad48589e47",
+  "primary_source": {
+    "name": "Chinese Wikisource 周易/卦名 pages",
+    "url": "https://zh.wikisource.org/wiki/周易",
+    "fetch_method": "single POST to Special:Export with 64 page titles",
+    "work_status": "public domain; page revision attribution retained per record"
+  },
+  "verification_sources": [
+    "https://ctext.org/book-of-changes/yi-jing/zhs",
+    "https://zh.wikisource.org/wiki/周易#分宮卦象次序表",
+    "https://github.com/yaomancy/liuyao-engine"
+  ],
+  "rule_sources": [
+    "京房八宫卦变规则",
+    "纳甲歌诀：乾金甲子外壬午等八卦纳甲表"
+  ],
+  "validation": {
+    "hexagrams": 64,
+    "standard_lines": 384,
+    "special_lines": 2,
+    "palace_records_per_palace": 8
+  }
+}

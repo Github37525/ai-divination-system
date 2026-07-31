@@ -57,6 +57,8 @@ class LLMInterpreter:
         """
         system_prompt = self.build_system_prompt()
         user_prompt = self.build_user_prompt(ai_context)
+        summary = ai_context["paipan_summary"]
+        focus = summary["焦点爻"]
 
         # 实际生产环境在此处调用 OpenAI / Claude / 本地 LLM API
         # response = client.chat.completions.create(

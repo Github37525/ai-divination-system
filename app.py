@@ -7,8 +7,8 @@ import uuid
 
 # 导入底层引擎模块
 from engine.caster import Caster, CastingError
-from engine.astronomy import AstronomyService
-from engine.paipan import PaipanEngine
+from engine.astronomy import AstronomyCalculationError, AstronomyService
+from engine.paipan import PaipanEngine, PaipanError
 from engine.guardrails import Guardrails, GuardrailValidationError
 from engine.llm_interpreter import LLMInterpreter
 from engine.tracker import AuditTracker
@@ -32,6 +32,10 @@ with st.sidebar:
     
     st.subheader("📍 地理位置 (计算真太阳时)")
     city_lng = st.number_input("经度 (如杭州 120.15, 新疆 87.6)", value=120.15, step=0.1)
+    city_lat = st.number_input("纬度 (如杭州 30.28)", value=30.28, step=0.1)
+    timezone_offset = st.number_input(
+        "UTC 时区偏移", min_value=-12.0, max_value=14.0, value=8.0, step=0.5
+    )
 
 # 主界面：输入占问事项
 user_query = st.text_input("🔮 请输入您要占问的事项", placeholder="例如：下半年事业发展趋势如何？")
@@ -51,7 +55,13 @@ if cast_mode == "手摇卦 (摇爻)":
         line5 = st.selectbox("五爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
         line6 = st.selectbox("上爻 (最上)", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
         
-    casting_input = {"mode": "manual", "lines": [line6, line5, line4, line3, line2, line1], "longitude": city_lng}
+    casting_input = {
+        "mode": "manual",
+        "lines": [line6, line5, line4, line3, line2, line1],
+        "longitude": city_lng,
+        "latitude": city_lat,
+        "timezone_offset_hours": timezone_offset,
+    }
 
 else:
     st.markdown("#### 请输入 3 个 0-999 之间的随机数字：")
@@ -59,7 +69,13 @@ else:
     n1 = c1.number_input("数字 1 (上卦)", min_value=0, max_value=999, value=123)
     n2 = c2.number_input("数字 2 (下卦)", min_value=0, max_value=999, value=456)
     n3 = c3.number_input("数字 3 (动爻)", min_value=0, max_value=999, value=789)
-    casting_input = {"mode": "number", "numbers": [n1, n2, n3], "longitude": city_lng}
+    casting_input = {
+        "mode": "number",
+        "numbers": [n1, n2, n3],
+        "longitude": city_lng,
+        "latitude": city_lat,
+        "timezone_offset_hours": timezone_offset,
+    }
 
 st.divider()
 
@@ -79,17 +95,28 @@ if st.button("🚀 开始起卦与 AI 解读", type="primary", use_container_wid
                     cast_res = Caster.cast_number(casting_input["numbers"])
                 
                 # 2. 天文历法
-                calendar_data = AstronomyService.get_ganzhi_calendar(datetime.datetime.now(), city_lng)
+                local_now = datetime.datetime.now(datetime.timezone.utc).astimezone(
+                    datetime.timezone(datetime.timedelta(hours=timezone_offset))
+                )
+                calendar_data = AstronomyService.get_ganzhi_calendar(
+                    local_now,
+                    city_lng,
+                    city_lat,
+                    timezone_offset,
+                )
                 
                 # 3. 排盘与焦点爻
-                engine = PaipanEngine(db_path="data/hexagrams_db.json")
+                engine = PaipanEngine()
                 paipan_data = engine.build_paipan(cast_res, calendar_data)
                 
                 # 4. Guardrails 硬校验
                 Guardrails.validate_paipan_data(paipan_data)
                 
-            except (CastingError, GuardrailValidationError, Exception) as e:
+            except (CastingError, AstronomyCalculationError, PaipanError, GuardrailValidationError) as e:
                 st.error(f"❌ 系统校验熔断：{str(e)}")
+                st.stop()
+            except Exception as e:
+                st.error(f"❌ 系统运行异常：{str(e)}")
                 st.stop()
         
         # 显示排盘客观结果
@@ -98,12 +125,14 @@ if st.button("🚀 开始起卦与 AI 解读", type="primary", use_container_wid
         col_res1, col_res2, col_res3 = st.columns(3)
         col_res1.metric("本卦/宫位", f"{paipan_data['name']}", paipan_data['palace'])
         col_res2.metric("日柱干支", calendar_data['day_ganzhi'])
-        col_res3.metric("核心焦点爻", f"第 {paipan_data['focus_analysis']['primary_focus']} 爻")
+        focus_number = paipan_data["focus_analysis"]["primary_focus"]
+        focus_label = f"第 {focus_number} 爻" if focus_number is not None else paipan_data["focus_text"]["line_name"]
+        col_res3.metric("核心焦点爻", focus_label)
         
         with st.expander("📖 查看系统调取的原典卦爻辞 (已防AI幻觉)"):
             st.json({
                 "卦辞原典": paipan_data["judgement"],
-                "焦点爻辞": paipan_data["lines_detail"][str(paipan_data["focus_analysis"]["primary_focus"])]
+                "焦点爻辞": paipan_data["focus_text"]
             })
 
         # 5. 调用 AI 进行三段式解读
@@ -117,7 +146,7 @@ if st.button("🚀 开始起卦与 AI 解读", type="primary", use_container_wid
                     "干支": calendar_data["day_ganzhi"],
                     "焦点爻": paipan_data["focus_analysis"],
                     "卦辞原典": paipan_data["judgement"],
-                    "焦点爻辞": paipan_data["lines_detail"][str(paipan_data["focus_analysis"]["primary_focus"])]
+                    "焦点爻辞": paipan_data["focus_text"]
                 }
             }
             interpreter = LLMInterpreter()
