@@ -4,15 +4,24 @@ import sqlite3
 import tempfile
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 from engine.astronomy import AstronomyCalculationError, AstronomyService
 from engine.caster import Caster, CastingError
+from engine.conversation import (
+    append_session_turn,
+    build_offline_follow_up,
+    classify_follow_up,
+    question_similarity,
+    session_memory_is_active,
+    start_session_memory,
+)
 from engine.guardrails import Guardrails
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanEngine, PaipanError
+from engine.quality import evaluate_interpretation
 from engine.tracker import AuditTracker
 from engine.qimen import GATE_SEQUENCE, STAR_SEQUENCE, QimenCalculationError, QimenService
 from engine.qimen_plain_language import (
@@ -22,7 +31,7 @@ from engine.qimen_plain_language import (
     summarize_asking_chart,
     summarize_lifelong_chart,
 )
-from main import run_divination_pipeline
+from main import retry_divination_interpretation, run_divination_pipeline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -217,6 +226,32 @@ class PipelineComponentTests(unittest.TestCase):
             cast = {"hexagram_code": code, "changed_hexagram_code": None, "moving_lines": []}
             self.assertTrue(Guardrails.validate_paipan_data(self.engine.build_paipan(cast, self.calendar)))
 
+    def test_five_hexagram_relations_are_deterministic_for_all_codes(self):
+        self_reversed_names = set()
+        for value in range(64):
+            code = f"{value:06b}"
+            related = self.engine.derive_related_codes(code)
+            self.assertEqual(related["original"], code)
+            self.assertIsNone(related["changed"])
+            self.assertEqual(related["mutual"], code[1:4] + code[2:5])
+            self.assertEqual(related["reversed"][::-1], code)
+            self.assertEqual(
+                self.engine.derive_related_codes(related["opposite"])["opposite"], code
+            )
+            if related["reversed"] == code:
+                self_reversed_names.add(self.engine.db[code]["name"])
+        self.assertEqual(
+            self_reversed_names,
+            {"乾为天", "坤为地", "坎为水", "离为火", "泽风大过", "雷山小过", "山雷颐", "风泽中孚"},
+        )
+
+    def test_relation_examples_match_verified_database(self):
+        qian = self.engine.derive_related_codes("111111", "000000")
+        self.assertEqual(qian["opposite"], "000000")
+        self.assertEqual(qian["mutual"], "111111")
+        zhun = self.engine.derive_related_codes("100010")
+        self.assertEqual(self.engine.db[zhun["reversed"]]["name"], "山水蒙")
+
     def test_missing_classic_data_stops_instead_of_faking_a_record(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "db.json"
@@ -391,6 +426,75 @@ class PipelineComponentTests(unittest.TestCase):
             LLMInterpreter(client=fake_client).interpret(context)
         self.assertEqual(completions.calls, 2)
 
+    def test_deepseek_network_error_retries_then_recovers(self):
+        class FlakyCompletions:
+            def __init__(self):
+                self.calls = 0
+
+            def create(self, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise ConnectionError("temporary")
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
+                        "classic_interpretation": "仅解释已核验事实。",
+                        "practical_mapping": "先核对条件，再做小步验证。",
+                    }, ensure_ascii=False)))],
+                    _request_id="retry-ok",
+                )
+
+        completions = FlakyCompletions()
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+        context = {
+            "user_query": "测试",
+            "paipan_summary": {
+                "卦名": "坤为地", "宫位": "坤土", "干支": "甲子",
+                "焦点爻": {"primary_focus": 6, "type": "静卦世爻", "description": "世爻。"},
+                "卦辞原典": "元亨。", "焦点爻辞": {"line_name": "上六", "text": "龍戰于野。"},
+            },
+        }
+        response = LLMInterpreter(client=fake_client).interpret(context)
+        self.assertIn("先核对条件", response)
+        self.assertEqual(completions.calls, 2)
+
+
+class ConversationTests(unittest.TestCase):
+    def test_follow_up_intents_and_question_similarity(self):
+        self.assertEqual(classify_follow_up("为什么这样判断？"), "basis")
+        self.assertEqual(classify_follow_up("现在我应该怎么做"), "actions")
+        self.assertEqual(classify_follow_up("只解释动爻"), "focus")
+        self.assertGreaterEqual(
+            question_similarity("请问未来三个月适合跳槽吗", "未来三个月跳槽怎么样"), 0.78
+        )
+        self.assertLess(question_similarity("是否适合跳槽", "孩子应该选什么专业"), 0.5)
+
+    def test_session_memory_expires_and_keeps_bounded_turns(self):
+        started = datetime(2026, 7, 31, 12, tzinfo=timezone.utc)
+        memory = start_session_memory("run-1", "测试问题", now=started)
+        self.assertTrue(session_memory_is_active(memory, now=started + timedelta(minutes=29)))
+        for index in range(10):
+            memory = append_session_turn(
+                memory, f"问题{index}", f"回答{index}", "general",
+                now=started + timedelta(minutes=index),
+            )
+        self.assertEqual(len(memory["turns"]), 8)
+        self.assertFalse(session_memory_is_active(memory, now=started + timedelta(minutes=40)))
+
+    def test_offline_follow_up_uses_only_verified_context(self):
+        context = {
+            "user_query": "测试问题",
+            "paipan_summary": {
+                "卦名": "坤为地",
+                "焦点爻": {"primary_focus": 6, "type": "静卦世爻", "description": "以世爻为核心。"},
+                "焦点爻辞": {"line_name": "上六", "text": "龍戰于野。"},
+                "六爻客观状态": {"6": {"state_tags": ["旬空"]}},
+            },
+        }
+        answer = build_offline_follow_up(context, "为什么", "basis")
+        self.assertIn("坤为地", answer)
+        self.assertIn("旬空", answer)
+        self.assertIn("本地规则转译", answer)
+
 
 class AuditTrackerTests(unittest.TestCase):
     def setUp(self):
@@ -432,6 +536,53 @@ class AuditTrackerTests(unittest.TestCase):
             self.tracker.save_run_record(*arguments)
         self.assertEqual(len(self.tracker.list_history()), 1)
 
+    def test_followups_export_and_delete_are_cascade_safe(self):
+        self.tracker.save_run_record(
+            "run-1", "未来三个月适合跳槽吗", {}, {}, {"paipan_summary": {}}, "解读"
+        )
+        followup_id = self.tracker.save_follow_up(
+            "run-1", "为什么", "basis", "因为焦点爻发动。", {"mode": "offline_followup"}
+        )
+        self.assertGreater(followup_id, 0)
+        record = self.tracker.get_run("run-1")
+        self.assertEqual(record["followups"][0]["intent"], "basis")
+        self.assertTrue(self.tracker.delete_run("run-1"))
+        self.assertEqual(self.tracker.list_followups("run-1"), [])
+
+    def test_similar_question_guard_is_scoped_to_sixyao(self):
+        self.tracker.save_run_record(
+            "run-1", "未来三个月适合跳槽吗", {}, {}, {"paipan_summary": {}}, "解读"
+        )
+        match = self.tracker.find_similar_recent(
+            "未来三个月跳槽怎么样", kind="sixyao", threshold=0.7
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["run_id"], "run-1")
+        self.assertIsNone(
+            self.tracker.find_similar_recent("孩子选什么专业", kind="sixyao")
+        )
+
+    def test_retention_settings_purge_and_clear(self):
+        for run_id in ("old", "new"):
+            self.tracker.save_run_record(run_id, f"问题{run_id}", {}, {}, {}, "解读")
+        connection = sqlite3.connect(self.tracker.db_file)
+        try:
+            connection.execute(
+                "UPDATE runs SET created_at = ? WHERE run_id = 'old'",
+                (datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat(),),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.tracker.set_retention_days(30)
+        removed = self.tracker.purge_expired(
+            now=datetime(2026, 7, 31, tzinfo=timezone.utc)
+        )
+        self.assertEqual(removed, 1)
+        self.assertEqual([item["run_id"] for item in self.tracker.list_history()], ["new"])
+        self.assertEqual(self.tracker.clear_history(), 1)
+        self.assertEqual(self.tracker.list_history(), [])
+
 
 class FullPipelineTests(unittest.TestCase):
     def test_offline_pipeline_persists_complete_audit_record(self):
@@ -453,8 +604,78 @@ class FullPipelineTests(unittest.TestCase):
             saved = tracker.get_run(result["run_id"])
             self.assertEqual(saved["paipan_data"]["name"], "坤为地")
             self.assertEqual(saved["llm_metadata"]["mode"], "offline")
-            self.assertEqual(len(saved["guardrail_log"]), 3)
+            self.assertEqual(len(saved["guardrail_log"]), 4)
             self.assertIn("未调用 DeepSeek", saved["llm_response"])
+
+    def test_model_failure_preserves_chart_and_retry_updates_same_run(self):
+        class AlwaysFail:
+            def create(self, **kwargs):
+                raise ConnectionError("temporary")
+
+        class AlwaysValid:
+            def create(self, **kwargs):
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
+                        "classic_interpretation": "这是受约束的解释。",
+                        "practical_mapping": "先核对现实条件，再做小步验证。",
+                    }, ensure_ascii=False)))],
+                    _request_id="retry-success",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            tracker = AuditTracker(Path(directory) / "pipeline.sqlite3")
+            failed_client = SimpleNamespace(chat=SimpleNamespace(completions=AlwaysFail()))
+            result = run_divination_pipeline(
+                "测试失败恢复",
+                {
+                    "mode": "manual", "lines": [8, 8, 8, 8, 8, 8],
+                    "longitude": 120.15, "latitude": 30.28,
+                    "timezone_offset_hours": 8.0,
+                },
+                now=datetime(2026, 8, 12, 10, 30),
+                interpreter=LLMInterpreter(client=failed_client),
+                tracker=tracker,
+            )
+            self.assertEqual(result["interpretation_status"], "failed")
+            self.assertEqual(tracker.get_run(result["run_id"])["llm_metadata"]["mode"], "error")
+            original_code = result["paipan"]["hexagram_code"]
+
+            valid_client = SimpleNamespace(chat=SimpleNamespace(completions=AlwaysValid()))
+            retried = retry_divination_interpretation(
+                result,
+                interpreter=LLMInterpreter(client=valid_client),
+                tracker=tracker,
+            )
+            self.assertEqual(retried["run_id"], result["run_id"])
+            self.assertEqual(retried["paipan"]["hexagram_code"], original_code)
+            self.assertEqual(retried["interpretation_status"], "completed")
+            saved = tracker.get_run(result["run_id"])
+            self.assertEqual(saved["llm_metadata"]["request_id"], "retry-success")
+            self.assertEqual(saved["guardrail_log"][-1]["status"], "passed")
+
+    def test_quality_baseline_cases_pass_offline_constraints(self):
+        baseline = json.loads(
+            (ROOT / "data" / "interpretation_quality_baseline.json").read_text(encoding="utf-8")
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tracker = AuditTracker(Path(directory) / "quality.sqlite3")
+            for case in baseline["cases"]:
+                result = run_divination_pipeline(
+                    case["query"],
+                    {
+                        "mode": "manual",
+                        "lines": case["manual_lines_top_to_bottom"],
+                        "longitude": 120.15,
+                        "latitude": 30.28,
+                        "timezone_offset_hours": 8.0,
+                    },
+                    now=datetime(2026, 8, 12, 10, 30),
+                    interpreter=LLMInterpreter(api_key=""),
+                    tracker=tracker,
+                )
+                self.assertEqual(result["paipan"]["name"], case["expected_hexagram"])
+                evaluation = evaluate_interpretation(result["llm_response"], result["ai_context"])
+                self.assertTrue(evaluation["passed"], (case["id"], evaluation["issues"]))
 
 
 class QimenTests(unittest.TestCase):

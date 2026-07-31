@@ -22,6 +22,7 @@ class Guardrails:
             "judgement",
             "lines_detail",
             "changed_hexagram",
+            "related_hexagrams",
             "focus_analysis",
             "focus_text",
         ]
@@ -146,6 +147,32 @@ class Guardrails:
                     raise GuardrailValidationError(
                         f"六爻皆动的{expected_special}规则数据缺失或焦点不一致。"
                     )
+
+        related = paipan_data.get("related_hexagrams")
+        if not isinstance(related, dict) or set(related) != {
+            "original", "changed", "mutual", "reversed", "opposite"
+        }:
+            raise GuardrailValidationError("本、变、互、综、错关系卦结构不完整。")
+        expected_related_codes = {
+            "original": hexagram_code,
+            "changed": changed_hexagram.get("hexagram_code") if changed_hexagram else None,
+            "mutual": hexagram_code[1:4] + hexagram_code[2:5],
+            "reversed": hexagram_code[::-1],
+            "opposite": "".join("0" if bit == "1" else "1" for bit in hexagram_code),
+        }
+        for relation, expected_code in expected_related_codes.items():
+            relation_data = related.get(relation)
+            if expected_code is None:
+                if relation_data is not None:
+                    raise GuardrailValidationError("静卦不应生成独立变卦关系记录。")
+                continue
+            if (
+                not isinstance(relation_data, dict)
+                or relation_data.get("hexagram_code") != expected_code
+                or not relation_data.get("name")
+                or not relation_data.get("source")
+            ):
+                raise GuardrailValidationError(f"{relation}关系卦计算或原典映射不一致。")
 
         # 断言：静卦时，焦点爻必须为世爻
         focus_info = paipan_data.get("focus_analysis", {})
