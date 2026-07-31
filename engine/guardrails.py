@@ -38,17 +38,23 @@ class Guardrails:
         required_line_fields = {
             "line_name", "text", "image", "najia", "branch", "element",
             "relative", "is_shi", "is_ying", "is_xunkong", "is_month_break",
-            "is_day_clash", "is_wood_tomb",
+            "is_day_clash", "is_wood_tomb", "is_moving", "seasonal_strength",
+            "is_dark_moving", "is_day_break", "day_clash_resolution",
+            "void_break_overlap", "state_tags", "hidden_spirits",
         }
         if set(lines_detail) != expected_line_keys or any(
             not isinstance(lines_detail[key], dict)
             or not required_line_fields.issubset(lines_detail[key])
-            or any(lines_detail[key][field] in (None, "") for field in required_line_fields)
+            or any(
+                lines_detail[key][field] in (None, "")
+                for field in required_line_fields - {"day_clash_resolution"}
+            )
             or any(
                 type(lines_detail[key][field]) is not bool
                 for field in (
                     "is_shi", "is_ying", "is_xunkong", "is_month_break",
-                    "is_day_clash", "is_wood_tomb",
+                    "is_day_clash", "is_wood_tomb", "is_moving",
+                    "is_dark_moving", "is_day_break", "void_break_overlap",
                 )
             )
             for key in expected_line_keys
@@ -79,6 +85,37 @@ class Guardrails:
             or len(set(moving_lines)) != len(moving_lines)
         ):
             raise GuardrailValidationError(f"非法动爻索引: {moving_lines}")
+        for number, line in lines_detail.items():
+            expected_moving = int(number) in moving_lines
+            if line["is_moving"] is not expected_moving:
+                raise GuardrailValidationError(f"第 {number} 爻动静标记与动爻列表不一致。")
+            if line["seasonal_strength"] not in {"旺", "相", "休", "囚", "死", "未知"}:
+                raise GuardrailValidationError(f"第 {number} 爻月令旺衰标记非法。")
+            if line["is_dark_moving"] and line["is_day_break"]:
+                raise GuardrailValidationError(f"第 {number} 爻不能同时标记暗动与日破。")
+            if line["is_day_clash"]:
+                if line["is_moving"]:
+                    expected_resolution = "明动受冲"
+                elif line["is_xunkong"]:
+                    expected_resolution = "冲空则实"
+                elif line["seasonal_strength"] in {"旺", "相"}:
+                    expected_resolution = "暗动"
+                else:
+                    expected_resolution = "日破"
+                if line["day_clash_resolution"] != expected_resolution:
+                    raise GuardrailValidationError(f"第 {number} 爻日冲结论与状态不一致。")
+            elif (
+                line["day_clash_resolution"] is not None
+                or line["is_dark_moving"]
+                or line["is_day_break"]
+            ):
+                raise GuardrailValidationError(f"第 {number} 爻无日冲却含冲破结论。")
+            if line["void_break_overlap"] is not (
+                line["is_xunkong"] and line["is_month_break"]
+            ):
+                raise GuardrailValidationError(f"第 {number} 爻空破并见标记不一致。")
+            if not isinstance(line["state_tags"], list) or not isinstance(line["hidden_spirits"], list):
+                raise GuardrailValidationError(f"第 {number} 爻状态或伏神结构非法。")
 
         hexagram_code = paipan_data["hexagram_code"]
         if not isinstance(hexagram_code, str) or len(hexagram_code) != 6 or set(hexagram_code) - {"0", "1"}:

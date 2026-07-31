@@ -1,162 +1,272 @@
-"""
-app.py - Streamlit 可视化前端与部署入口
-"""
-import streamlit as st
-import datetime
+"""Streamlit：六爻、问事奇门、终身奇门与历史复盘。"""
+from __future__ import annotations
+
+import datetime as dt
+import html
+import os
 import uuid
 
-# 导入底层引擎模块
-from engine.caster import Caster, CastingError
-from engine.astronomy import AstronomyCalculationError, AstronomyService
-from engine.paipan import PaipanEngine, PaipanError
-from engine.guardrails import Guardrails, GuardrailValidationError
-from engine.llm_interpreter import LLMInterpreter
+import streamlit as st
+
+from engine.astronomy import AstronomyCalculationError
+from engine.caster import CastingError
+from engine.guardrails import GuardrailValidationError
+from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
+from engine.paipan import PaipanError
+from engine.qimen import QimenCalculationError, QimenService
 from engine.tracker import AuditTracker
+from main import run_divination_pipeline
 
-# 页面基本配置
-st.set_page_config(
-    page_title="数智易学 - 确定性排盘与AI解卦系统",
-    page_icon="☯️",
-    layout="centered"
-)
 
+st.set_page_config(page_title="数智易学", page_icon="☯️", layout="wide")
 st.title("☯️ 数智易学排盘系统")
-st.caption("基于确定性规则引擎 + 天文真太阳时 + 大模型 CoT 严密解读")
+st.caption("确定性规则排盘 · 原典可查 · DeepSeek 受约束解读 · 全链路可追溯")
 
-st.divider()
 
-# 侧边栏：选择起卦方式与经纬度
-with st.sidebar:
-    st.header("⚙️ 起卦设置")
-    cast_mode = st.radio("选择起卦模式", ["手摇卦 (摇爻)", "数字起卦"])
-    
-    st.subheader("📍 地理位置 (计算真太阳时)")
-    city_lng = st.number_input("经度 (如杭州 120.15, 新疆 87.6)", value=120.15, step=0.1)
-    city_lat = st.number_input("纬度 (如杭州 30.28)", value=30.28, step=0.1)
-    timezone_offset = st.number_input(
-        "UTC 时区偏移", min_value=-12.0, max_value=14.0, value=8.0, step=0.5
+@st.cache_resource
+def get_tracker() -> AuditTracker:
+    return AuditTracker()
+
+
+def get_deepseek_key() -> str:
+    value = os.getenv("DEEPSEEK_API_KEY", "")
+    try:
+        value = st.secrets.get("DEEPSEEK_API_KEY", value)
+    except FileNotFoundError:
+        pass
+    return value
+
+
+def local_datetime(date_value: dt.date, time_value: dt.time, offset: float) -> dt.datetime:
+    return dt.datetime.combine(
+        date_value, time_value, tzinfo=dt.timezone(dt.timedelta(hours=offset))
     )
 
-# 主界面：输入占问事项
-user_query = st.text_input("🔮 请输入您要占问的事项", placeholder="例如：下半年事业发展趋势如何？")
 
-casting_input = {}
+def render_qimen_chart(chart: dict) -> None:
+    st.success(
+        f"{chart['solar_term']} · {chart['yuan']} · {chart['dun']}{chart['ju_number']}局 · "
+        f"值符 {chart['zhi_fu']['star']} · 值使 {chart['zhi_shi']['gate']}"
+    )
+    palaces = {item["position"]: item for item in chart["palaces"]}
+    for row in ((4, 9, 2), (3, 5, 7), (8, 1, 6)):
+        columns = st.columns(3)
+        for column, position in zip(columns, row):
+            palace = palaces[position]
+            with column.container(border=True):
+                st.markdown(f"**{palace['name']}{position}宫**")
+                st.caption(
+                    f"神：{palace['deity'] or '—'}　星：{'/'.join(palace['stars'])}　门：{palace['gate'] or '—'}"
+                )
+                st.write(
+                    f"天盘：{'/'.join(palace['heaven_stems'])}　地盘：{'/'.join(palace['earth_stems'])}"
+                )
+                if palace["is_void"]:
+                    st.warning("旬空")
+    with st.expander("规则约定与完整结构"):
+        st.write(chart["school"], chart["ju_method"], chart["middle_palace_rule"])
+        st.json(chart)
 
-if cast_mode == "手摇卦 (摇爻)":
-    st.markdown("#### 请从初爻（最下方）到上爻（最上方）选择六爻状态：")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        line1 = st.selectbox("初爻 (最下)", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-        line2 = st.selectbox("二爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-        line3 = st.selectbox("三爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-    with col2:
-        line4 = st.selectbox("四爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-        line5 = st.selectbox("五爻", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-        line6 = st.selectbox("上爻 (最上)", [7, 8, 9, 6], format_func=lambda x: {7:"少阳 (—)", 8:"少阴 (- -)", 9:"老阳 (— O 动)", 6:"老阴 (- - X 动)"}[x])
-        
-    casting_input = {
-        "mode": "manual",
-        "lines": [line6, line5, line4, line3, line2, line1],
-        "longitude": city_lng,
-        "latitude": city_lat,
-        "timezone_offset_hours": timezone_offset,
-    }
 
-else:
-    st.markdown("#### 请输入 3 个 0-999 之间的随机数字：")
-    c1, c2, c3 = st.columns(3)
-    n1 = c1.number_input("数字 1 (上卦)", min_value=0, max_value=999, value=123)
-    n2 = c2.number_input("数字 2 (下卦)", min_value=0, max_value=999, value=456)
-    n3 = c3.number_input("数字 3 (动爻)", min_value=0, max_value=999, value=789)
-    casting_input = {
-        "mode": "number",
-        "numbers": [n1, n2, n3],
-        "longitude": city_lng,
-        "latitude": city_lat,
-        "timezone_offset_hours": timezone_offset,
-    }
+def save_qimen_audit(chart: dict, query: str, raw_input: dict) -> str:
+    run_id = str(uuid.uuid4())
+    get_tracker().save_run_record(
+        run_id,
+        query,
+        raw_input,
+        chart,
+        {"run_id": run_id, "chart_type": chart["chart_type"], "chart": chart},
+        "已生成确定性奇门盘；奇门文本解读尚未调用 DeepSeek。",
+        [{"check": "qimen_structure", "status": "passed"}],
+        {"provider": "none", "mode": "deterministic"},
+    )
+    return run_id
 
-st.divider()
 
-# 提交按钮与 Pipeline 执行
-if st.button("🚀 开始起卦与 AI 解读", type="primary", use_container_width=True):
-    if not user_query.strip():
-        st.warning("⚠️ 请先输入您要占问的事项！")
+tracker = get_tracker()
+with st.sidebar:
+    st.header("📍 时间与位置")
+    longitude = st.number_input("经度", -180.0, 180.0, 120.15, 0.01)
+    latitude = st.number_input("纬度", -90.0, 90.0, 30.28, 0.01)
+    timezone_offset = st.number_input("UTC 时区偏移", -12.0, 14.0, 8.0, 0.5)
+    st.caption("当前支持手动精确经纬度；历法按节气时刻与真太阳时计算。")
+    if get_deepseek_key():
+        st.success("DeepSeek：已配置")
     else:
-        run_id = str(uuid.uuid4())
-        
-        with st.spinner("正在通过确定性规则引擎排盘与计算真太阳时..."):
+        st.info("DeepSeek：离线模式")
+
+
+sixyao_tab, asking_tab, lifelong_tab, history_tab = st.tabs(
+    ["六爻问事", "问事奇门", "终身奇门", "历史复盘"]
+)
+
+with sixyao_tab:
+    query = st.text_input("占问事项", placeholder="请描述一个具体、可复盘的问题", key="sixyao_query")
+    cast_mode = st.radio("起卦方式", ["手摇卦", "数字起卦"], horizontal=True)
+    casting_input = {
+        "longitude": longitude,
+        "latitude": latitude,
+        "timezone_offset_hours": timezone_offset,
+    }
+    if cast_mode == "手摇卦":
+        labels = ("上爻（最上）", "五爻", "四爻", "三爻", "二爻", "初爻（最下）")
+        format_line = {6: "老阴 ⚋×", 7: "少阳 ⚊", 8: "少阴 ⚋", 9: "老阳 ⚊○"}
+        columns = st.columns(3)
+        lines = [
+            columns[index % 3].selectbox(
+                label, [8, 7, 6, 9], format_func=format_line.get, key=f"manual_line_{index}"
+            )
+            for index, label in enumerate(labels)
+        ]
+        casting_input.update(mode="manual", lines=lines)
+    else:
+        columns = st.columns(3)
+        numbers = [
+            columns[0].number_input("数字 1（上卦）", 0, 999, 123),
+            columns[1].number_input("数字 2（下卦）", 0, 999, 456),
+            columns[2].number_input("数字 3（动爻）", 0, 999, 789),
+        ]
+        casting_input.update(mode="number", numbers=numbers)
+
+    if st.button("开始六爻排盘与解读", type="primary", use_container_width=True):
+        try:
+            with st.spinner("正在排盘、校验并生成受约束解读…"):
+                st.session_state["sixyao_result"] = run_divination_pipeline(
+                    query,
+                    casting_input,
+                    interpreter=LLMInterpreter(api_key=get_deepseek_key()),
+                    tracker=tracker,
+                )
+        except (ValueError, CastingError, AstronomyCalculationError, PaipanError,
+                GuardrailValidationError, LLMInterpretationError) as error:
+            st.error(f"系统已中止：{error}")
+
+    result = st.session_state.get("sixyao_result")
+    if result:
+        paipan = result["paipan"]
+        calendar = result["calendar"]
+        columns = st.columns(4)
+        columns[0].metric("本卦", paipan["name"])
+        columns[1].metric("宫位", paipan["palace"])
+        columns[2].metric("日柱", calendar["day_ganzhi"])
+        columns[3].metric("旬空", "、".join(calendar["xunkong"]))
+        focus = paipan["focus_analysis"]["primary_focus"]
+        st.markdown("#### 六爻盘面（上爻在上）")
+        for number in range(6, 0, -1):
+            line = paipan["lines_detail"][str(number)]
+            marker = "⚊" if paipan["hexagram_code"][number - 1] == "1" else "⚋"
+            tags = " · ".join(line["state_tags"]) or "平"
+            content = (
+                f"{marker}　第{number}爻　{line['najia']} {line['relative']}　{tags}"
+                f"{'　← 核心焦点' if focus == number else ''}"
+            )
+            if focus == number:
+                st.markdown(
+                    f"<div style='border:2px solid #c9a227;border-radius:8px;padding:10px;background:#fff8dc'>{html.escape(content)}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.code(content, language=None)
+        with st.expander("原典与排盘数据"):
+            st.write("卦辞：", paipan["judgement"])
+            st.json(paipan)
+        st.markdown("### DeepSeek 解读报告")
+        st.markdown(result["llm_response"])
+        if result["llm_metadata"]["mode"] == "offline":
+            st.info("未配置密钥：本次只展示确定性盘面与已核验原典。")
+        with st.expander(f"调试轨迹 · {result['run_id']}"):
+            st.json(result["guardrail_log"])
+
+with asking_tab:
+    asking_query = st.text_input("问事主题", key="qimen_query")
+    category = st.selectbox("事项类别", ["综合", "事业", "合作", "出行", "学业", "关系"])
+    use_now = st.checkbox("使用当前时间", value=True)
+    if use_now:
+        asking_time = dt.datetime.now(dt.timezone.utc).astimezone(
+            dt.timezone(dt.timedelta(hours=timezone_offset))
+        )
+    else:
+        date_value = st.date_input("起局日期", key="qimen_date")
+        time_value = st.time_input("起局时间", key="qimen_time")
+        asking_time = local_datetime(date_value, time_value, timezone_offset)
+    if st.button("生成问事奇门九宫盘", use_container_width=True):
+        if not asking_query.strip():
+            st.warning("请先填写问事主题。")
+        else:
             try:
-                # 1. 起卦处理
-                if casting_input["mode"] == "manual":
-                    cast_res = Caster.cast_manual(casting_input["lines"])
-                else:
-                    cast_res = Caster.cast_number(casting_input["numbers"])
-                
-                # 2. 天文历法
-                local_now = datetime.datetime.now(datetime.timezone.utc).astimezone(
-                    datetime.timezone(datetime.timedelta(hours=timezone_offset))
+                chart = QimenService.build_asking_chart(
+                    asking_time, longitude, latitude, timezone_offset, category
                 )
-                calendar_data = AstronomyService.get_ganzhi_calendar(
-                    local_now,
-                    city_lng,
-                    city_lat,
-                    timezone_offset,
+                run_id = save_qimen_audit(
+                    chart,
+                    asking_query,
+                    {"datetime": asking_time.isoformat(), "longitude": longitude, "latitude": latitude},
                 )
-                
-                # 3. 排盘与焦点爻
-                engine = PaipanEngine()
-                paipan_data = engine.build_paipan(cast_res, calendar_data)
-                
-                # 4. Guardrails 硬校验
-                Guardrails.validate_paipan_data(paipan_data)
-                
-            except (CastingError, AstronomyCalculationError, PaipanError, GuardrailValidationError) as e:
-                st.error(f"❌ 系统校验熔断：{str(e)}")
-                st.stop()
-            except Exception as e:
-                st.error(f"❌ 系统运行异常：{str(e)}")
-                st.stop()
-        
-        # 显示排盘客观结果
-        st.success("✅ 确定性排盘完成 (已通过 Guardrails 硬校验)")
-        
-        col_res1, col_res2, col_res3 = st.columns(3)
-        col_res1.metric("本卦/宫位", f"{paipan_data['name']}", paipan_data['palace'])
-        col_res2.metric("日柱干支", calendar_data['day_ganzhi'])
-        focus_number = paipan_data["focus_analysis"]["primary_focus"]
-        focus_label = f"第 {focus_number} 爻" if focus_number is not None else paipan_data["focus_text"]["line_name"]
-        col_res3.metric("核心焦点爻", focus_label)
-        
-        with st.expander("📖 查看系统调取的原典卦爻辞 (已防AI幻觉)"):
-            st.json({
-                "卦辞原典": paipan_data["judgement"],
-                "焦点爻辞": paipan_data["focus_text"]
-            })
+                st.session_state["asking_result"] = (run_id, chart)
+            except (AstronomyCalculationError, QimenCalculationError) as error:
+                st.error(f"奇门排盘中止：{error}")
+    if "asking_result" in st.session_state:
+        run_id, chart = st.session_state["asking_result"]
+        render_qimen_chart(chart)
+        st.caption(f"Run ID：{run_id}")
 
-        # 5. 调用 AI 进行三段式解读
-        with st.spinner("🤖 正在调用 AI 进行三段式思维链 (CoT) 严密解读..."):
-            ai_context = {
-                "run_id": run_id,
-                "user_query": user_query,
-                "paipan_summary": {
-                    "卦名": paipan_data["name"],
-                    "宫位": paipan_data["palace"],
-                    "干支": calendar_data["day_ganzhi"],
-                    "焦点爻": paipan_data["focus_analysis"],
-                    "卦辞原典": paipan_data["judgement"],
-                    "焦点爻辞": paipan_data["focus_text"]
-                }
-            }
-            interpreter = LLMInterpreter()
-            llm_response = interpreter.interpret(ai_context)
-            
-            # 落库审计
-            tracker = AuditTracker()
-            tracker.save_run_record(run_id, user_query, casting_input, paipan_data, ai_context, llm_response)
+with lifelong_tab:
+    st.warning("出生时间与性别仅用于本地确定性计算；请自行评估隐私后再提交。")
+    columns = st.columns(3)
+    birth_date = columns[0].date_input("出生日期", value=dt.date(1990, 1, 1))
+    birth_time = columns[1].time_input("出生时间", value=dt.time(12, 0))
+    gender = columns[2].selectbox("性别（用于大运顺逆）", ["男", "女"])
+    flow_year = st.number_input("流年起始年份", 1900, 2200, dt.date.today().year)
+    if st.button("生成终身奇门结构", use_container_width=True):
+        try:
+            birth_datetime = local_datetime(birth_date, birth_time, timezone_offset)
+            chart = QimenService.build_lifelong_chart(
+                birth_datetime, longitude, latitude, gender, int(flow_year), timezone_offset
+            )
+            run_id = save_qimen_audit(
+                chart,
+                "终身奇门结构",
+                {"birth_datetime": birth_datetime.isoformat(), "longitude": longitude,
+                 "latitude": latitude, "gender": gender, "flow_year": int(flow_year)},
+            )
+            st.session_state["lifelong_result"] = (run_id, chart)
+        except (AstronomyCalculationError, QimenCalculationError) as error:
+            st.error(f"终身盘计算中止：{error}")
+    if "lifelong_result" in st.session_state:
+        run_id, chart = st.session_state["lifelong_result"]
+        columns = st.columns(3)
+        columns[0].metric("起运年龄", f"{chart['start_age']} 岁")
+        columns[1].metric("大运方向", chart["luck_direction"])
+        columns[2].metric("目标节令", chart["target_term"]["name"])
+        render_qimen_chart(chart["birth_chart"])
+        st.markdown("#### 大运与流运结构")
+        st.dataframe(chart["luck_cycles"], use_container_width=True, hide_index=True)
+        st.json({
+            "五行显性分布": chart["five_element_distribution"],
+            "流年": chart["annual_cycles"],
+            "流月": chart["monthly_cycles"],
+        })
+        st.caption(f"Run ID：{run_id}")
 
-        st.markdown("### 📝 AI 解读报告")
-        st.markdown(llm_response)
-        
-        st.caption(f"追踪 ID (Run ID): {run_id}")
+with history_tab:
+    st.caption("审计记录保存在 SQLite；Streamlit Cloud 的本地磁盘重启后可能重置。")
+    history = tracker.list_history(limit=30)
+    if not history:
+        st.info("暂无历史记录。")
+    label_to_status = {"尚无结果": "pending", "应验": "verified", "未应验": "unverified", "部分应验": "partial"}
+    status_to_label = {value: key for key, value in label_to_status.items()}
+    for item in history:
+        with st.expander(f"{item['created_at']} · {item['user_query']} · {item['run_id'][:8]}"):
+            st.markdown(item["llm_response"])
+            current = status_to_label[item["feedback"]["status"]]
+            status = st.selectbox(
+                "事后验证", list(label_to_status), index=list(label_to_status).index(current),
+                key=f"feedback_status_{item['run_id']}",
+            )
+            notes = st.text_area(
+                "实际事件与时间", value=item["feedback"]["notes"],
+                key=f"feedback_notes_{item['run_id']}",
+            )
+            if st.button("保存反馈", key=f"feedback_save_{item['run_id']}"):
+                tracker.record_user_feedback(item["run_id"], label_to_status[status], notes)
+                st.success("反馈已保存。")

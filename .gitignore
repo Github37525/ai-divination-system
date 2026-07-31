@@ -8,5 +8,11 @@ env/
 venv/
 
 # 忽略临时数据与密钥
-*.env
+.env
+.env.local
 .streamlit/secrets.toml
+
+# 运行时审计数据库
+data/audit_history.json
+data/audit_history.sqlite3
+data/audit_history.sqlite3-*

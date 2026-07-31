@@ -7,6 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from .config import CONTROLS, GENERATES, SIX_RELATIVES, TRIGRAM_BITS
+
 
 class PaipanError(ValueError):
     """排盘所需规则或原典数据缺失。"""
@@ -31,6 +33,7 @@ class PaipanEngine:
         moving_lines: List[int],
         shi_line: int,
         special_line: Optional[Dict[str, Any]] = None,
+        lines_detail: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         易学断卦核心逻辑：自动提取“焦点爻”
@@ -52,31 +55,144 @@ class PaipanEngine:
         elif num_moving == 1:
             return {"primary_focus": moving_lines[0], "type": "单动爻", "description": f"本局第 {moving_lines[0]} 爻发动，为核心变量。"}
         else:
-            # 多个动爻的优先分析策略
-            primary = shi_line if shi_line in moving_lines else moving_lines[0]
+            detail = lines_detail or {}
+            shi_element = detail.get(str(shi_line), {}).get("element")
+
+            def priority(line_number: int) -> tuple[int, int]:
+                line = detail.get(str(line_number), {})
+                element = line.get("element")
+                score = 100 if line_number == shi_line else 0
+                if element and shi_element:
+                    if CONTROLS.get(element) == shi_element:
+                        score += 30
+                    elif GENERATES.get(element) == shi_element:
+                        score += 20
+                    elif GENERATES.get(shi_element) == element:
+                        score += 10
+                if line.get("is_ying"):
+                    score += 5
+                return score, -line_number
+
+            ordered = sorted(moving_lines, key=priority, reverse=True)
+            primary = ordered[0]
             return {
                 "primary_focus": primary,
-                "secondary_focus": [m for m in moving_lines if m != primary],
+                "secondary_focus": ordered[1:],
                 "type": "多动爻复杂局",
-                "description": f"本局多爻联动，优先以第 {primary} 爻为核心矛盾点。"
+                "description": f"本局多爻联动，按世爻、对世爻生克及应爻顺序，以第 {primary} 爻为主焦点。",
+                "priority_basis": "世爻 > 克世 > 生世 > 世生 > 应爻 > 爻位",
             }
 
     @staticmethod
+    def _seasonal_strength(line_element: Optional[str], month_element: Optional[str]) -> str:
+        if not line_element or not month_element:
+            return "未知"
+        if line_element == month_element:
+            return "旺"
+        if GENERATES[month_element] == line_element:
+            return "相"
+        if GENERATES[line_element] == month_element:
+            return "休"
+        if CONTROLS[line_element] == month_element:
+            return "囚"
+        return "死"
+
+    @staticmethod
+    def _flying_hidden_relation(flying_element: str, hidden_element: str) -> str:
+        if flying_element == hidden_element:
+            return "比和"
+        if GENERATES[flying_element] == hidden_element:
+            return "飞生伏"
+        if CONTROLS[flying_element] == hidden_element:
+            return "飞克伏"
+        if GENERATES[hidden_element] == flying_element:
+            return "伏生飞"
+        return "伏克飞"
+
+    def _attach_hidden_spirits(
+        self,
+        hex_data: Dict[str, Any],
+        lines: Dict[str, Dict[str, Any]],
+    ) -> None:
+        present_relatives = {line.get("relative") for line in lines.values()}
+        missing_relatives = SIX_RELATIVES - present_relatives
+        palace_name = hex_data.get("palace_name")
+        trigram_bits = TRIGRAM_BITS.get(palace_name)
+        if trigram_bits is None:
+            raise PaipanError(f"无法定位 {palace_name} 宫的本宫卦。")
+        palace_code = "".join(str(bit) for bit in trigram_bits + trigram_bits)
+        palace_hexagram = self._get_hexagram(palace_code, "本宫")
+        palace_lines = palace_hexagram.get("lines", {})
+        for line_number, line in lines.items():
+            line["hidden_spirits"] = []
+            hidden = palace_lines.get(line_number)
+            if hidden and hidden.get("relative") in missing_relatives:
+                line["hidden_spirits"].append(
+                    {
+                        "line_name": hidden["line_name"],
+                        "najia": hidden["najia"],
+                        "branch": hidden["branch"],
+                        "element": hidden["element"],
+                        "relative": hidden["relative"],
+                        "source_hexagram": palace_hexagram["name"],
+                        "flying_hidden_relation": self._flying_hidden_relation(
+                            line["element"], hidden["element"]
+                        ),
+                    }
+                )
+
+    @staticmethod
     def _decorate_lines(
-        lines: Dict[str, Dict[str, Any]], calendar_data: Dict[str, Any]
+        lines: Dict[str, Dict[str, Any]],
+        calendar_data: Dict[str, Any],
+        moving_lines: Optional[List[int]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         decorated = deepcopy(lines)
+        moving = set(moving_lines or [])
         xunkong = set(calendar_data.get("xunkong", []))
         month_branch = calendar_data.get("month_branch")
         day_branch = calendar_data.get("day_branch")
-        for line in decorated.values():
+        month_element = calendar_data.get("month_element")
+        for number, line in decorated.items():
             branch = line.get("branch")
+            line_number = int(number)
             line["is_xunkong"] = branch in xunkong
             line["is_month_break"] = branch == calendar_data.get("month_break_branch")
             line["is_day_clash"] = branch == calendar_data.get("day_clash_branch")
             line["is_wood_tomb"] = (
                 line.get("element") == "木" and (month_branch == "未" or day_branch == "未")
             )
+            line["is_moving"] = line_number in moving
+            line["seasonal_strength"] = PaipanEngine._seasonal_strength(
+                line.get("element"), month_element
+            )
+            line["is_dark_moving"] = False
+            line["is_day_break"] = False
+            line["day_clash_resolution"] = None
+            if line["is_day_clash"]:
+                if line["is_moving"]:
+                    line["day_clash_resolution"] = "明动受冲"
+                elif line["is_xunkong"]:
+                    line["day_clash_resolution"] = "冲空则实"
+                elif line["seasonal_strength"] in {"旺", "相"}:
+                    line["is_dark_moving"] = True
+                    line["day_clash_resolution"] = "暗动"
+                else:
+                    line["is_day_break"] = True
+                    line["day_clash_resolution"] = "日破"
+            line["void_break_overlap"] = line["is_xunkong"] and line["is_month_break"]
+            line["state_tags"] = [
+                label
+                for active, label in (
+                    (line["is_xunkong"], "旬空"),
+                    (line["is_month_break"], "月破"),
+                    (line["is_dark_moving"], "暗动"),
+                    (line["is_day_break"], "日破"),
+                    (line["is_wood_tomb"], "木墓"),
+                    (line["void_break_overlap"], "空破并见"),
+                )
+                if active
+            ]
         return decorated
 
     def build_paipan(self, cast_result: Dict[str, Any], calendar_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -108,10 +224,13 @@ class PaipanEngine:
         
         moving_lines = cast_result.get("moving_lines", [])
         special_line = hex_data.get("special_line")
-        focus_info = self.extract_focus_line(
-            moving_lines, hex_data.get("shi", 6), special_line
+        lines_detail = self._decorate_lines(
+            hex_data.get("lines", {}), calendar_data, moving_lines
         )
-        lines_detail = self._decorate_lines(hex_data.get("lines", {}), calendar_data)
+        self._attach_hidden_spirits(hex_data, lines_detail)
+        focus_info = self.extract_focus_line(
+            moving_lines, hex_data.get("shi", 6), special_line, lines_detail
+        )
         primary_focus = focus_info.get("primary_focus")
         focus_text = (
             special_line
