@@ -2,21 +2,11 @@
 engine/astronomy.py
 计算四柱干支、真太阳时调整、旬空及六神
 """
-import sys
-import os
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
-# 将项目根目录添加到动态模块搜索路径中，彻底解决 Streamlit Cloud 部署时的 ModuleNotFoundError
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import sys
-import os
-
-# 动态将项目根目录加入 sys.path 的最前端
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from config import TIANGAN, DIZHI, LIUSHEN_MAP
+# 直接使用包内相对导入，彻底消除路径问题
+from .config import TIANGAN, DIZHI, LIUSHEN_MAP
 
 
 class AstronomyService:
