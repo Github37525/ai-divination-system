@@ -1,0 +1,12 @@
+# 忽略 Python 缓存文件
+__pycache__/
+*.pyc
+
+# 忽略环境与虚拟环境
+.venv/
+env/
+venv/
+
+# 忽略临时数据与密钥
+*.env
+.streamlit/secrets.toml
