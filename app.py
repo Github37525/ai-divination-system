@@ -10,7 +10,7 @@ import uuid
 import streamlit as st
 
 from engine.astronomy import AstronomyCalculationError
-from engine.caster import Caster, CastingError
+from engine.caster import CastingError
 from engine.guardrails import GuardrailValidationError
 from engine.llm_interpreter import LLMInterpretationError, LLMInterpreter
 from engine.paipan import PaipanError
@@ -566,7 +566,9 @@ with sixyao_tab:
                         virtual_throws.append(
                             {
                                 "coins": coins,
-                                "value": Caster.coin_result_to_line(fronts, 3 - fronts),
+                                # 三枚铜钱中正面每增加一枚，总值由 6 递增到 9。
+                                # 留在页面层换算，避免 Streamlit 热更新时新 app 调用旧 Caster。
+                                "value": 6 + fronts,
                             }
                         )
                         st.session_state["virtual_coin_throws"] = virtual_throws
