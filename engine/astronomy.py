@@ -10,6 +10,12 @@ from typing import Dict, Any
 # 将项目根目录添加到动态模块搜索路径中，彻底解决 Streamlit Cloud 部署时的 ModuleNotFoundError
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import sys
+import os
+
+# 动态将项目根目录加入 sys.path 的最前端
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import TIANGAN, DIZHI, LIUSHEN_MAP
 
 

@@ -1,6 +1,12 @@
 """
 app.py - Streamlit 可视化前端与部署入口
 """
+import sys
+import os
+
+# 确保项目根目录在 Python 模块搜索路径的最首位
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 import datetime
 import uuid
