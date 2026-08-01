@@ -16,3 +16,9 @@ venv/
 data/audit_history.json
 data/audit_history.sqlite3
 data/audit_history.sqlite3-*
+
+# 原生客户端本地构建产物
+native/android/.gradle/
+native/android/**/build/
+native/ios/*.xcodeproj/
+native/ios/DerivedData/

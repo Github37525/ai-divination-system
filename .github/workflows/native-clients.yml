@@ -1,0 +1,48 @@
+name: Native clients
+
+on:
+  push:
+    paths:
+      - "native/**"
+      - "scripts/validate_native_clients.py"
+      - ".github/workflows/native-clients.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "scripts/validate_native_clients.py"
+      - ".github/workflows/native-clients.yml"
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+      - name: Build and test Android
+        run: gradle -p native/android testDebugUnitTest assembleDebug --stacktrace
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: native/ios
+        run: xcodegen generate
+      - name: Build iOS simulator app
+        working-directory: native/ios
+        run: >-
+          xcodebuild
+          -project DivinationInstrument.xcodeproj
+          -scheme DivinationInstrument
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build

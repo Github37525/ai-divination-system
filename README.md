@@ -16,9 +16,10 @@
 - P0 Experience API：安全随机承诺、幂等单爻、手机体感/点按摇卦和电脑实时协同
 - P0 生产化：Redis/Valkey 临时会话、分层限流、刷新恢复与 DeepSeek 后台异步解释
 - 微信双工程：可公开提审的《周易》文化学习版，以及仅供白名单真机测试的内部体感体验版
+- iOS / Android 真原生客户端：Core Motion/Core Haptics 与 Sensor Framework/平台触觉，含重力陀螺仪、铜钱动画、原创音效和加密断点恢复
 
 规则来源与流派约定见 [data/SOURCES.md](data/SOURCES.md) 和 [docs/QIMEN_RULES.md](docs/QIMEN_RULES.md)。
-下一阶段的 H5、微信小程序、原生 App、手机体感摇卦和电脑手机协同规划见 [PRD v3.0](divination_system_prd_v3.md)。
+原生工程与真机验收说明见 [`native`](native/README.md)；全平台规划见 [PRD v3.0](divination_system_prd_v3.md)。
 
 ## 本地运行
 
@@ -42,6 +43,7 @@ python -m experience
 - [`miniprogram-culture`](miniprogram-culture)：公开提审候选，仅提供六十四卦原典、阅读术语和来源核验，不发起网络请求。
 - [`experience_web`](experience_web)：完整 H5/PWA 互动体验，独立链接与二维码分享。
 - [`miniprogram`](miniprogram)：内部研发体验版，仅供管理员、开发者和白名单体验成员进行传感器、震动及接口真机测试，不公开提审。
+- [`native`](native)：iOS 17+ 与 Android API 26+ 真原生客户端，共享服务协议但不共享 UI 代码。
 
 公开文化版数据由 `scripts/build_miniprogram_culture_data.js` 从经过核验的主数据库生成。内部体验版只保存短时会话凭证及最多 20 条本机卦例；DeepSeek 密钥、随机种子、排盘逻辑和异步任务全部留在服务端。
 

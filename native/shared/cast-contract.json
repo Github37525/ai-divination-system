@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "api_base_url": "https://ai-divination-experience.onrender.com",
+  "flow": [
+    "preparing",
+    "calibrating",
+    "ready",
+    "sensing",
+    "result_locked",
+    "animating",
+    "line_complete",
+    "cast_complete"
+  ],
+  "line_types": {
+    "6": {"name": "老阴", "moving": true, "yang": false},
+    "7": {"name": "少阳", "moving": false, "yang": true},
+    "8": {"name": "少阴", "moving": false, "yang": false},
+    "9": {"name": "老阳", "moving": true, "yang": true}
+  },
+  "feedback": {
+    "valid_motion": "light_convergence",
+    "coin_impacts": "three_restrained_impacts",
+    "line_locked": "double_short_low_confirmation",
+    "moving_line": "short_pause_heavy_overtone",
+    "cast_complete": "success_sequence"
+  },
+  "motion": {
+    "linear_acceleration_threshold_g": 1.15,
+    "rotation_rate_threshold_radians": 2.2,
+    "required_impulses": 3,
+    "window_milliseconds": 900,
+    "cooldown_milliseconds": 1800
+  },
+  "privacy": {
+    "sound_enabled_by_default": false,
+    "haptics_enabled_by_default": true,
+    "sensor_data_uploaded": false
+  }
+}
