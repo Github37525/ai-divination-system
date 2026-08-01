@@ -18,11 +18,24 @@ function desktopStatus(message, kind = "") {
   $d("#desktopLiveStatus").textContent = message;
 }
 
-async function desktopRequest(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
-  });
+async function desktopRequest(path, options = {}, attempt = 0) {
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+  } catch (error) {
+    if (attempt < 5) {
+      await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+      return desktopRequest(path, options, attempt + 1);
+    }
+    throw error;
+  }
+  if (response.headers.get("x-render-routing") === "no-server" && attempt < 5) {
+    await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+    return desktopRequest(path, options, attempt + 1);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || "请求失败，请稍后重试。");
   return payload;
@@ -74,7 +87,7 @@ async function createPairing() {
   }
 }
 
-function connectDesktopSocket(pairing) {
+function connectDesktopSocket(pairing, attempt = 0) {
   if (desktopState.socket) desktopState.socket.close();
   const socket = new WebSocket(desktopWebsocketUrl(pairing));
   desktopState.socket = socket;
@@ -82,7 +95,15 @@ function connectDesktopSocket(pairing) {
     desktopStatus("配对已创建 · 等待手机", "connected");
     $d("#desktopHint").textContent = "用手机扫描左侧二维码，或输入六位配对码";
   });
-  socket.addEventListener("close", () => desktopStatus("协同连接已断开", "error"));
+  socket.addEventListener("close", () => {
+    if (desktopState.socket !== socket) return;
+    if (desktopState.lines.length < 6 && attempt < 6) {
+      desktopStatus("连接波动，正在自动重连…");
+      setTimeout(() => connectDesktopSocket(pairing, attempt + 1), 500 * (attempt + 1));
+      return;
+    }
+    desktopStatus("协同连接已断开", "error");
+  });
   socket.addEventListener("message", event => {
     const message = JSON.parse(event.data);
     if (message.type === "peer_status" && message.role === "mobile") {

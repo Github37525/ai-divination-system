@@ -31,11 +31,24 @@ function setStatus(message, kind = "") {
   $("#liveStatus").textContent = message;
 }
 
-async function requestJson(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
-  });
+async function requestJson(path, options = {}, attempt = 0) {
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+  } catch (error) {
+    if (attempt < 5) {
+      await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+      return requestJson(path, options, attempt + 1);
+    }
+    throw error;
+  }
+  if (response.headers.get("x-render-routing") === "no-server" && attempt < 5) {
+    await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+    return requestJson(path, options, attempt + 1);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || "请求失败，请稍后重试。");
   return payload;
@@ -131,7 +144,7 @@ function websocketUrl(pairingId, token) {
   return `${scheme}//${location.host}/v1/pairing-sessions/${pairingId}/ws?token=${encodeURIComponent(token)}&role=mobile`;
 }
 
-function connectPairing(pairingId, token) {
+function connectPairing(pairingId, token, attempt = 0) {
   state.pairingId = pairingId;
   state.pairingToken = token;
   showCastPanel();
@@ -140,6 +153,12 @@ function connectPairing(pairingId, token) {
   state.socket = socket;
   socket.addEventListener("open", () => setStatus("已连接电脑", "connected"));
   socket.addEventListener("close", () => {
+    if (state.socket !== socket) return;
+    if (state.lines.length < 6 && attempt < 6) {
+      setStatus("连接波动，正在自动重连…");
+      setTimeout(() => connectPairing(pairingId, token, attempt + 1), 500 * (attempt + 1));
+      return;
+    }
     setStatus("电脑连接已断开", "error");
     if (state.lines.length < 6) $("#stageHint").textContent = "连接中断，请回到电脑重新扫码。";
   });
