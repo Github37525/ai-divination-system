@@ -1,0 +1,30 @@
+<view class="page-shell">
+  <text class="eyebrow">ABOUT · 版本说明</text>
+  <text class="page-title">一座可核验的经典文本库</text>
+  <text class="lead muted">本应用专注《周易》原典的结构化阅读，不收集个人问题，也不针对个人作出结论。</text>
+
+  <view class="paper-card info-card">
+    <text class="section-title">内容范围</text>
+    <text class="body-copy">收录六十四卦卦名、卦序、卦辞、彖传、象传、三百八十四条爻辞，以及乾坤两卦的用九、用六。</text>
+  </view>
+
+  <view class="paper-card info-card">
+    <text class="section-title">主要底本</text>
+    <text class="body-copy">维基文库《周易》卦名页面。原典属于公共领域，每条记录保留页面标题和来源地址。</text>
+    <text class="source-url">https://zh.wikisource.org/wiki/周易</text>
+  </view>
+
+  <view class="paper-card info-card">
+    <text class="section-title">交叉核验</text>
+    <text class="body-copy">中国哲学书电子化计划《周易》。数据库构建后执行数量、卦序、爻数和内容哈希校验。</text>
+    <text class="source-url">https://ctext.org/book-of-changes/yi-jing/zhs</text>
+  </view>
+
+  <view class="integrity-card">
+    <text>数据完整性指纹</text>
+    <text class="hash">{{databaseHash}}</text>
+    <text class="muted">用于确认小程序文本与仓库内经过核验的数据版本一致。</text>
+  </view>
+
+  <navigator url="/pages/library/library" open-type="reLaunch" class="back-link">返回六十四卦典藏</navigator>
+</view>

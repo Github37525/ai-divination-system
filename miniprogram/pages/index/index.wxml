@@ -7,6 +7,8 @@
     <navigator class="history-link" url="/pages/history/history">卦例</navigator>
   </view>
 
+  <view class="internal-banner">内部研发体验版 · 不用于公开提审或转发运营</view>
+
   <view wx:if="{{view === 'setup'}}" class="panel setup-panel">
     <text class="eyebrow">01 · 明确所问</text>
     <text class="hero-title">一念既起，六爻成象</text>

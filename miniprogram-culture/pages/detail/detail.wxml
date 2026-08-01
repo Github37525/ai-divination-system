@@ -1,0 +1,68 @@
+<view wx:if="{{record}}" class="page-shell detail-page">
+  <view class="detail-hero">
+    <text class="number">周易第 {{record.number}} 卦</text>
+    <text class="symbol">{{record.symbol}}</text>
+    <text class="page-title">{{record.name}}</text>
+    <text class="canonical">{{record.canonicalName}}</text>
+    <view class="trigram-row">
+      <text>上卦 · {{record.upperTrigram}}</text>
+      <view class="divider"></view>
+      <text>下卦 · {{record.lowerTrigram}}</text>
+    </view>
+  </view>
+
+  <view class="reading-guide">
+    <text>阅读顺序</text>
+    <text class="muted">卦辞概括全篇，彖传阐释义理，象传说明取象，六爻由下向上排列。</text>
+  </view>
+
+  <view class="paper-card text-section">
+    <text class="section-title">卦辞</text>
+    <text class="body-copy">{{record.judgement}}</text>
+  </view>
+
+  <view class="paper-card text-section">
+    <text class="section-title">彖传</text>
+    <text class="body-copy">{{record.tuan}}</text>
+  </view>
+
+  <view class="paper-card text-section">
+    <text class="section-title">大象</text>
+    <text class="body-copy">{{record.image}}</text>
+  </view>
+
+  <view class="lines-title">
+    <text class="section-title">六爻原文</text>
+    <text class="muted">初爻在下，上爻在上</text>
+  </view>
+  <view wx:for="{{record.lines}}" wx:key="position" class="paper-card line-card">
+    <view class="line-head">
+      <view>
+        <text class="line-name">{{item.lineName}}</text>
+        <text class="line-type">{{item.yinYang}}爻</text>
+      </view>
+      <text class="line-glyph">{{item.glyph}}</text>
+    </view>
+    <text class="line-text">{{item.text}}</text>
+    <text class="line-image">《象》曰：{{item.image}}</text>
+  </view>
+
+  <view wx:if="{{record.specialLine}}" class="paper-card special-line">
+    <text class="line-name">{{record.specialLine.lineName}}</text>
+    <text class="line-text">{{record.specialLine.text}}</text>
+    <text class="line-image">《象》曰：{{record.specialLine.image}}</text>
+  </view>
+
+  <view class="source-card">
+    <text class="source-title">文本来源</text>
+    <text>{{record.sourceTitle}}</text>
+    <text class="source-url">{{record.sourceUrl}}</text>
+    <text class="muted source-caption">另以中国哲学书电子化计划文本交叉核验</text>
+  </view>
+</view>
+
+<view wx:else class="page-shell not-found">
+  <text class="symbol">☷</text>
+  <text>未找到对应经典条目</text>
+  <navigator class="text-link" open-type="navigateBack" delta="1">返回典藏</navigator>
+</view>

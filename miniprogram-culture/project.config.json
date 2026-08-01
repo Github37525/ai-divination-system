@@ -3,7 +3,15 @@
   "compileType": "miniprogram",
   "libVersion": "trial",
   "miniprogramRoot": "./",
-  "projectname": "ai-divination-internal-lab",
+  "projectname": "yijing-culture-library",
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "file",
+        "value": "README.md"
+      }
+    ]
+  },
   "setting": {
     "checkSiteMap": true,
     "es6": true,
