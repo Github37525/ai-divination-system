@@ -381,7 +381,7 @@ private fun CoinVisual(
                 translationX = x.value.dp.toPx()
                 translationY = y.value.dp.toPx()
                 this.rotationX = rotationX.value
-                rotationZ = rotationZ.value
+                this.rotationZ = rotationZ.value
                 cameraDistance = 14f * density
                 shadowElevation = if (showFace) 8.dp.toPx() else 18.dp.toPx()
             },
