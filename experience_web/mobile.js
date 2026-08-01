@@ -1,5 +1,8 @@
 const state = {
-  config: { motion: { shake_threshold: 11.5, impulses_required: 3, window_ms: 900, cooldown_ms: 1400 } },
+  config: {
+    motion: { shake_threshold: 11.5, impulses_required: 3, window_ms: 900, cooldown_ms: 1400 },
+    llm: { provider: "deepseek", configured: false, model: "deepseek-v4-flash" }
+  },
   sessionId: null,
   sessionToken: null,
   pairingId: null,
@@ -98,6 +101,17 @@ function hapticFor(line) {
   if (!$("#hapticToggle").checked || typeof navigator.vibrate !== "function") return;
   const pattern = line.moving ? [30, 55, 75] : [24, 45, 24];
   navigator.vibrate(pattern);
+}
+
+function interpretationLabel(summary) {
+  if (summary.interpretation_status === "failed") return "DeepSeek 调用失败 · 确定性盘面已保留";
+  if (summary.ai_generated && summary.interpretation_mode === "api") return "DeepSeek 解读完成";
+  return "离线规则解读 · 未调用 DeepSeek";
+}
+
+function vibrateResult() {
+  if (!$("#hapticToggle").checked || typeof navigator.vibrate !== "function") return false;
+  return navigator.vibrate([35, 45, 35, 45, 100]);
 }
 
 function animateLine(line) {
@@ -324,13 +338,23 @@ function showResult(payload) {
   $("#resultTitle").textContent = summary.changed_hexagram_name
     ? `${summary.hexagram_name || "本卦"} → ${summary.changed_hexagram_name}`
     : summary.hexagram_name || "排盘完成";
-  $("#resultMeta").textContent = `Run ID · ${(payload.run_id || "").slice(0, 8)} · ${summary.interpretation_status === "completed" ? "解读完成" : "确定性盘面已保留"}`;
+  $("#resultMeta").textContent = `Run ID · ${(payload.run_id || "").slice(0, 8)} · ${interpretationLabel(summary)}`;
   renderInterpretation(
     $("#resultInterpretation"),
     summary.interpretation || "完整盘面已经生成，可回到电脑查看详细证据。"
   );
   setStatus("六爻完成", "connected");
-  if ($("#hapticToggle").checked && navigator.vibrate) navigator.vibrate([35, 45, 35, 45, 90]);
+  const hapticButton = $("#resultHapticButton");
+  const hapticStatus = $("#resultHapticStatus");
+  if (typeof navigator.vibrate === "function" && $("#hapticToggle").checked) {
+    hapticButton.hidden = false;
+    hapticStatus.textContent = vibrateResult()
+      ? "已发送结果触觉；若未感到震动，可点“触觉确认”重试。"
+      : "浏览器拦截了自动震动，请点“触觉确认”。";
+  } else {
+    hapticButton.hidden = true;
+    hapticStatus.textContent = "当前浏览器不支持网页震动；iPhone Safari 需使用微信小程序或原生 App 才能提供可靠触觉。";
+  }
 }
 
 function renderInterpretation(container, text) {
@@ -345,6 +369,10 @@ function renderInterpretation(container, text) {
 
 async function boot() {
   try { state.config = await requestJson("/v1/config"); } catch (_) { /* use safe defaults */ }
+  if (typeof navigator.vibrate !== "function") {
+    $("#hapticToggle").checked = false;
+    $("#hapticToggle").disabled = true;
+  }
   const params = new URLSearchParams(location.search);
   const pairingId = params.get("pairing");
   const token = params.get("token");
@@ -357,6 +385,11 @@ $("#joinCodeButton").addEventListener("click", joinPairingCode);
 $("#tapCastButton").addEventListener("click", () => triggerLine("tap"));
 $("#motionButton").addEventListener("click", enableMotion);
 $("#completeButton").addEventListener("click", completeCast);
+$("#resultHapticButton").addEventListener("click", () => {
+  $("#resultHapticStatus").textContent = vibrateResult()
+    ? "触觉确认已发送。"
+    : "当前浏览器或系统未执行震动。";
+});
 $("#settingsButton").addEventListener("click", () => {
   const panel = $("#settingsPanel");
   panel.hidden = !panel.hidden;

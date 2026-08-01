@@ -31,6 +31,12 @@ class StubPipeline:
                 "focus_analysis": {"primary_line": 1, "type": "测试焦点"},
             },
             "interpretation_status": "completed",
+            "llm_metadata": {
+                "provider": "deepseek",
+                "model": "deepseek-test",
+                "mode": "api",
+                "ai_generated": True,
+            },
             "llm_response": "这是只用于接口测试的受约束解读。",
         }
 
@@ -77,6 +83,8 @@ class ExperienceSessionTests(unittest.TestCase):
         self.assertEqual(completed, repeated)
         self.assertEqual(len(self.pipeline.calls), 1)
         self.assertEqual(completed["run_id"], session["run_id"])
+        self.assertTrue(completed["result_summary"]["ai_generated"])
+        self.assertEqual(completed["result_summary"]["interpretation_mode"], "api")
         self.assertEqual(
             hashlib.sha256(bytes.fromhex(completed["seed_reveal"])).hexdigest(),
             completed["seed_commitment"],
@@ -134,6 +142,10 @@ class ExperienceApiTests(unittest.TestCase):
 
     def test_static_entries_and_direct_cast_api(self) -> None:
         self.assertEqual(self.client.get("/healthz").status_code, 200)
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-secret"}):
+            config = self.client.get("/v1/config").json()
+        self.assertTrue(config["llm"]["configured"])
+        self.assertNotIn("test-secret", str(config))
         self.assertIn("手机体感摇卦", self.client.get("/mobile").text)
         self.assertIn("电脑手机协同", self.client.get("/desktop").text)
 

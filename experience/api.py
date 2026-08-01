@@ -178,6 +178,11 @@ def create_app(store: Optional[SessionStore] = None) -> FastAPI:
                 "pairing": True,
                 "tap_fallback": True,
             },
+            "llm": {
+                "provider": "deepseek",
+                "configured": bool(os.environ.get("DEEPSEEK_API_KEY")),
+                "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            },
         }
 
     @app.post("/v1/cast-sessions", status_code=201)

@@ -163,6 +163,12 @@ function completeOnDesktop() {
   desktopState.socket.send(JSON.stringify({ type: "complete" }));
 }
 
+function desktopInterpretationLabel(summary) {
+  if (summary.interpretation_status === "failed") return "DeepSeek 调用失败 · 确定性盘面已保留";
+  if (summary.ai_generated && summary.interpretation_mode === "api") return "DeepSeek 解读完成";
+  return "离线规则解读 · 未调用 DeepSeek";
+}
+
 function showDesktopResult(message) {
   desktopState.busy = false;
   const summary = message.result_summary || {};
@@ -170,7 +176,7 @@ function showDesktopResult(message) {
   $d("#desktopResultTitle").textContent = summary.changed_hexagram_name
     ? `${summary.hexagram_name || "本卦"} → ${summary.changed_hexagram_name}`
     : summary.hexagram_name || "排盘完成";
-  $d("#desktopResultMeta").textContent = `Run ID · ${(message.run_id || "").slice(0, 8)} · ${summary.interpretation_status === "completed" ? "解读完成" : "确定性盘面已保留"}`;
+  $d("#desktopResultMeta").textContent = `Run ID · ${(message.run_id || "").slice(0, 8)} · ${desktopInterpretationLabel(summary)}`;
   renderDesktopInterpretation($d("#desktopResultCopy"), summary.interpretation || "盘面已经生成。");
   desktopStatus("电脑与手机结果已统一", "connected");
   $d("#desktopResult").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });

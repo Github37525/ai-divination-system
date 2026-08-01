@@ -316,6 +316,7 @@ class SessionStore:
         assert session.result is not None
         paipan = session.result.get("paipan", {})
         changed = paipan.get("changed_hexagram") or {}
+        llm_metadata = session.result.get("llm_metadata") or {}
         return {
             "session_id": session.session_id,
             "run_id": session.run_id,
@@ -330,6 +331,9 @@ class SessionStore:
                 "moving_lines": paipan.get("moving_lines", []),
                 "focus_analysis": paipan.get("focus_analysis"),
                 "interpretation_status": session.result.get("interpretation_status"),
+                "interpretation_mode": llm_metadata.get("mode", "unknown"),
+                "ai_generated": bool(llm_metadata.get("ai_generated")),
+                "model": llm_metadata.get("model"),
                 "interpretation": session.result.get("llm_response"),
             },
             "result": session.result,

@@ -225,6 +225,8 @@ textarea:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px r
 .result-copy { margin: 1rem 0 1.4rem; color: #ccd2de; line-height: 1.85; white-space: pre-wrap; }
 .result-copy h3 { margin: 1.6rem 0 .45rem; color: var(--ink); font-size: 1.05rem; }
 .result-copy p { margin: .45rem 0; }
+.result-actions { display: grid; gap: .7rem; }
+.result-actions a { display: grid; place-items: center; text-decoration: none; }
 
 .desktop-shell { width: min(1440px, 100%); margin: 0 auto; padding: 2rem clamp(1.2rem, 3vw, 3rem) 4rem; }
 .desktop-header { margin-bottom: 1.4rem; align-items: flex-end; }
