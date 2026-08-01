@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/styles.css">
+  <title>数智易学 · 沉浸式起卦</title>
+</head>
+<body>
+  <main class="landing-shell">
+    <section class="landing-hero">
+      <p class="eyebrow"><span class="signal"></span> EXPERIENCE ENGINE · P0</p>
+      <h1>让动作成为仪式，<br>让结果保持可信。</h1>
+      <p class="lead">手机体感摇卦与电脑—手机实时协同已经进入首批可运行体验。运动数据只在本机识别，卦象仍由可审计的安全随机源生成。</p>
+      <div class="entry-grid">
+        <a class="entry-card primary-card" href="/mobile">
+          <span class="entry-code">MOTION CAST</span>
+          <strong>手机摇卦</strong>
+          <small>设备运动识别、条件震动、减少动态与点按降级</small>
+        </a>
+        <a class="entry-card" href="/desktop">
+          <span class="entry-code">CROSS DEVICE</span>
+          <strong>电脑手机协同</strong>
+          <small>电脑创建问题，手机扫码摇卦，六爻实时回到大屏</small>
+        </a>
+      </div>
+      <p class="privacy-note">原始运动数据不上传 · 权限拒绝后仍可完整起卦 · 支持减少动态效果</p>
+    </section>
+  </main>
+  <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");</script>
+</body>
+</html>

@@ -222,6 +222,24 @@ class LLMInterpreter:
             }
         return self._compose_report(ai_context, payload)
 
+    def pending_report(self, ai_context: Dict[str, Any]) -> str:
+        """在模型后台生成期间，先返回完整的确定性盘面说明。"""
+        self.last_metadata = {
+            "provider": "deepseek",
+            "model": self.model_name,
+            "mode": "pending",
+            "request_id": None,
+            "ai_generated": False,
+            "content_type": "deterministic_pending",
+        }
+        return self._compose_report(
+            ai_context,
+            {
+                "classic_interpretation": "确定性盘面已经完成，DeepSeek 典籍语义解释正在后台生成。",
+                "practical_mapping": "你可以先查看本卦、变卦和焦点爻；白话行动建议生成后会自动更新。",
+            },
+        )
+
     def failure_report(self, ai_context: Dict[str, Any], error: Exception) -> str:
         """模型失败时保留完整确定性报告，供页面稍后单独重试解释。"""
         self.last_metadata = {

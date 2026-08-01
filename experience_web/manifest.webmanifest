@@ -1,0 +1,10 @@
+{
+  "name": "数智易学 · 沉浸式起卦",
+  "short_name": "数智易学",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "lang": "zh-CN",
+  "description": "支持手机体感与点按操作的可审计起卦体验"
+}

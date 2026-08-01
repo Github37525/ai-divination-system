@@ -1,0 +1,53 @@
+<view class="page-shell">
+  <view class="hero">
+    <view class="seal">易</view>
+    <view class="hero-copy">
+      <text class="eyebrow">CLASSICS · 文化研习</text>
+      <text class="page-title">六十四卦典藏</text>
+      <text class="intro muted">按卦序阅读卦辞、彖传、象传与爻辞。内容用于经典学习，不提供针对个人的判断。</text>
+    </view>
+  </view>
+
+  <view class="search-box">
+    <text class="search-icon">⌕</text>
+    <input value="{{query}}" bindinput="onSearch" placeholder="搜索卦名、卦序或上下卦" placeholder-class="search-placeholder" />
+    <text wx:if="{{query}}" class="clear-search" bindtap="clearSearch">清除</text>
+  </view>
+
+  <view class="study-nav">
+    <navigator url="/pages/glossary/glossary" class="nav-card">
+      <text class="nav-kicker">入门</text>
+      <text class="nav-title">阅读术语</text>
+      <text class="nav-arrow">→</text>
+    </navigator>
+    <navigator url="/pages/about/about" class="nav-card">
+      <text class="nav-kicker">依据</text>
+      <text class="nav-title">版本来源</text>
+      <text class="nav-arrow">→</text>
+    </navigator>
+  </view>
+
+  <view class="library-head">
+    <text>周易卦序</text>
+    <text class="muted">{{filteredCount}} / 64</text>
+  </view>
+
+  <view wx:if="{{filteredCount}}" class="hexagram-grid">
+    <navigator wx:for="{{hexagrams}}" wx:key="code" class="hexagram-card" url="/pages/detail/detail?code={{item.code}}">
+      <view class="card-number">{{item.displayNumber}}</view>
+      <text class="card-symbol">{{item.symbol}}</text>
+      <text class="card-name">{{item.name}}</text>
+      <text class="card-trigrams">上{{item.upperTrigram}} · 下{{item.lowerTrigram}}</text>
+    </navigator>
+  </view>
+  <view wx:else class="paper-card empty-state">
+    <text class="empty-symbol">☰</text>
+    <text>没有找到匹配的条目</text>
+    <text class="muted">可尝试输入“乾”“坤”或数字序号</text>
+  </view>
+
+  <view class="source-note">
+    <text>底本：维基文库《周易》</text>
+    <text class="muted">全库经过 64 卦、384 爻完整性校验</text>
+  </view>
+</view>

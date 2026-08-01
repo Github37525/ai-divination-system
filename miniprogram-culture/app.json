@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "pages/library/library",
+    "pages/detail/detail",
+    "pages/glossary/glossary",
+    "pages/about/about"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#09110f",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "周易经典研习",
+    "backgroundColor": "#f4efe3",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

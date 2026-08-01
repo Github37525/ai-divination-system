@@ -1,0 +1,15 @@
+<view class="page-shell">
+  <text class="eyebrow">FOUNDATION · 入门</text>
+  <text class="page-title">怎样阅读《周易》</text>
+  <text class="lead muted">先认识文本层次，再逐条阅读。这里解释的是经典结构，不针对个人处境作判断。</text>
+
+  <view wx:for="{{terms}}" wx:key="title" class="paper-card term-card">
+    <view class="term-head">
+      <text class="term-index">{{item.indexLabel}}</text>
+      <text class="section-title">{{item.title}}</text>
+    </view>
+    <text class="body-copy">{{item.description}}</text>
+  </view>
+
+  <navigator url="/pages/library/library" open-type="reLaunch" class="back-link">返回六十四卦典藏</navigator>
+</view>

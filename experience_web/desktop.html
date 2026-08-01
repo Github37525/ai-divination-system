@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070b14">
+  <link rel="stylesheet" href="/static/styles.css">
+  <title>电脑手机协同 · 数智易学</title>
+</head>
+<body class="desktop-body">
+  <main class="desktop-shell">
+    <header class="desktop-header">
+      <div>
+        <p class="eyebrow"><span class="signal"></span> CROSS DEVICE RITUAL</p>
+        <h1>电脑定问题，手机来摇卦。</h1>
+      </div>
+      <a href="/" class="text-link">返回体验入口</a>
+    </header>
+
+    <div class="desktop-grid">
+      <aside class="glass-panel pairing-panel">
+        <p class="eyebrow">01 · 创建协同会话</p>
+        <label for="desktopQuestion">占问事项</label>
+        <textarea id="desktopQuestion" rows="4" maxlength="500" placeholder="写明一件事与时间范围"></textarea>
+        <button id="createPairingButton" class="button primary full" type="button">生成手机配对码</button>
+
+        <div id="pairingDetails" class="pairing-details" hidden>
+          <div id="qrCode" class="qr-frame" aria-label="手机配对二维码"></div>
+          <p class="pairing-code-label">无法扫码时输入</p>
+          <strong id="pairingCode" class="pairing-code">------</strong>
+          <button id="copyLinkButton" class="button secondary full" type="button">复制手机链接</button>
+          <p id="pairingExpiry" class="muted small"></p>
+        </div>
+      </aside>
+
+      <section class="ritual-stage">
+        <div class="stage-topline">
+          <span id="desktopConnectionBadge" class="status-badge">等待创建会话</span>
+          <span id="desktopRunId" class="run-label"></span>
+        </div>
+        <div id="desktopCoinStage" class="coin-stage desktop-coins">
+          <div class="instrument-rings" aria-hidden="true"></div>
+          <div class="coin-set">
+            <div class="coin"><span>乾</span></div>
+            <div class="coin"><span>元</span></div>
+            <div class="coin"><span>通</span></div>
+          </div>
+          <p id="desktopHint" class="stage-hint">创建配对后，用手机扫码开始</p>
+        </div>
+
+        <div class="desktop-progress">
+          <div>
+            <span>已完成</span>
+            <strong><span id="desktopLineCount">0</span> / 6</strong>
+          </div>
+          <button id="desktopCompleteButton" class="button primary" type="button" disabled>生成完整盘面</button>
+        </div>
+        <ol id="desktopLineList" class="line-list desktop-line-list"></ol>
+
+        <section id="desktopResult" class="result-panel desktop-result" hidden>
+          <p class="eyebrow">RESULT · SAME RUN ID</p>
+          <h2 id="desktopResultTitle">排盘完成</h2>
+          <p id="desktopResultMeta" class="result-meta"></p>
+          <div id="desktopResultCopy" class="result-copy"></div>
+        </section>
+      </section>
+    </div>
+    <div id="desktopLiveStatus" class="sr-only" aria-live="polite"></div>
+  </main>
+  <script src="/static/desktop.js" defer></script>
+</body>
+</html>

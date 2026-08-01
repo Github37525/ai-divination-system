@@ -1,0 +1,167 @@
+.detail-hero {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 28rpx 0 38rpx;
+}
+
+.number {
+  color: #9b5847;
+  font-size: 22rpx;
+  letter-spacing: 4rpx;
+}
+
+.symbol {
+  margin-top: 16rpx;
+  color: #21483d;
+  font-size: 112rpx;
+  line-height: 1.15;
+}
+
+.canonical {
+  margin-top: 8rpx;
+  color: #7c8984;
+  font-size: 23rpx;
+}
+
+.trigram-row {
+  display: flex;
+  align-items: center;
+  margin-top: 26rpx;
+  color: #4a655c;
+  font-size: 24rpx;
+}
+
+.divider {
+  width: 1rpx;
+  height: 25rpx;
+  margin: 0 24rpx;
+  background: #bec8c2;
+}
+
+.reading-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  margin-bottom: 24rpx;
+  padding: 24rpx 28rpx;
+  border-left: 6rpx solid #4b8878;
+  background: rgba(66, 127, 108, .07);
+  color: #36564c;
+  font-size: 25rpx;
+  line-height: 1.65;
+}
+
+.reading-guide .muted {
+  font-size: 23rpx;
+}
+
+.text-section {
+  margin-bottom: 22rpx;
+  padding: 32rpx;
+}
+
+.lines-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 42rpx 4rpx 18rpx;
+}
+
+.lines-title .section-title {
+  margin: 0;
+}
+
+.lines-title .muted {
+  font-size: 21rpx;
+}
+
+.line-card,
+.special-line {
+  margin-bottom: 18rpx;
+  padding: 28rpx;
+}
+
+.line-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.line-name {
+  color: #9b4637;
+  font-family: "STKaiti", serif;
+  font-size: 31rpx;
+  font-weight: 600;
+}
+
+.line-type {
+  margin-left: 12rpx;
+  color: #89958f;
+  font-size: 21rpx;
+}
+
+.line-glyph {
+  color: #28584b;
+  font-family: monospace;
+  font-size: 28rpx;
+  letter-spacing: -2rpx;
+}
+
+.line-text {
+  display: block;
+  margin-top: 22rpx;
+  color: #273a34;
+  font-family: "STKaiti", serif;
+  font-size: 31rpx;
+  line-height: 1.75;
+}
+
+.line-image {
+  display: block;
+  margin-top: 14rpx;
+  color: #71807b;
+  font-size: 24rpx;
+  line-height: 1.75;
+}
+
+.special-line {
+  border-color: rgba(151, 70, 55, .24);
+  background: #f3e7d7;
+}
+
+.source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 44rpx;
+  padding: 28rpx;
+  color: #53645e;
+  border-top: 1rpx solid #c8cec9;
+  font-size: 23rpx;
+  line-height: 1.6;
+}
+
+.source-title {
+  color: #2c5045;
+  font-weight: 600;
+}
+
+.source-url {
+  color: #74847e;
+  font-size: 20rpx;
+  word-break: break-all;
+}
+
+.source-caption {
+  font-size: 21rpx;
+}
+
+.not-found {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 24rpx;
+  padding-top: 120rpx;
+  color: #5e6e68;
+}

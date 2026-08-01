@@ -1,0 +1,192 @@
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 26rpx;
+  margin: 8rpx 0 36rpx;
+}
+
+.seal {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 104rpx;
+  height: 104rpx;
+  color: #f7efe0;
+  border-radius: 18rpx;
+  background: #9f3c2f;
+  box-shadow: inset 0 0 0 6rpx rgba(255, 255, 255, .16);
+  font-family: "STKaiti", serif;
+  font-size: 58rpx;
+}
+
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.intro {
+  display: block;
+  margin-top: 18rpx;
+  font-size: 25rpx;
+  line-height: 1.7;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  height: 92rpx;
+  padding: 0 26rpx;
+  border: 1rpx solid rgba(51, 96, 81, .17);
+  border-radius: 22rpx;
+  background: rgba(255, 253, 247, .92);
+  box-shadow: 0 14rpx 38rpx rgba(41, 61, 54, .06);
+}
+
+.search-icon {
+  margin-right: 16rpx;
+  color: #39786b;
+  font-size: 42rpx;
+}
+
+.search-box input {
+  flex: 1;
+  color: #24332e;
+  font-size: 27rpx;
+}
+
+.search-placeholder {
+  color: #9aa6a1;
+}
+
+.clear-search {
+  color: #3c7b6e;
+  font-size: 23rpx;
+}
+
+.study-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18rpx;
+  margin: 24rpx 0 42rpx;
+}
+
+.nav-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 24rpx;
+  overflow: hidden;
+  border: 1rpx solid rgba(60, 111, 94, .13);
+  border-radius: 20rpx;
+  background: #e5eee7;
+}
+
+.nav-card:nth-child(2) {
+  background: #eee7d9;
+}
+
+.nav-kicker {
+  color: #6f857d;
+  font-size: 20rpx;
+  letter-spacing: 3rpx;
+}
+
+.nav-title {
+  margin-top: 8rpx;
+  color: #25443a;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+
+.nav-arrow {
+  position: absolute;
+  right: 22rpx;
+  bottom: 18rpx;
+  color: #658c80;
+  font-size: 34rpx;
+}
+
+.library-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+  color: #29493f;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+
+.hexagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18rpx;
+}
+
+.hexagram-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 28rpx 18rpx 24rpx;
+  border: 1rpx solid rgba(46, 72, 63, .11);
+  border-radius: 22rpx;
+  background: rgba(255, 253, 247, .88);
+  box-shadow: 0 12rpx 34rpx rgba(33, 48, 43, .055);
+}
+
+.card-number {
+  position: absolute;
+  top: 14rpx;
+  left: 18rpx;
+  color: #9a5f4c;
+  font-family: "DIN Alternate", sans-serif;
+  font-size: 21rpx;
+}
+
+.card-symbol {
+  color: #213f36;
+  font-size: 68rpx;
+  line-height: 1.25;
+}
+
+.card-name {
+  color: #20342d;
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.card-trigrams {
+  margin-top: 8rpx;
+  color: #84908c;
+  font-size: 21rpx;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 12rpx;
+  padding: 70rpx 30rpx;
+  color: #52625c;
+  font-size: 28rpx;
+}
+
+.empty-symbol {
+  color: #4d7c6e;
+  font-size: 72rpx;
+}
+
+.empty-state .muted {
+  font-size: 23rpx;
+}
+
+.source-note {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-top: 42rpx;
+  color: #65736e;
+  font-size: 22rpx;
+}

@@ -72,9 +72,11 @@ def run_divination_pipeline(
     user_query: str,
     casting_input: dict,
     *,
+    run_id: Optional[str] = None,
     now: Optional[datetime] = None,
     interpreter: Optional[LLMInterpreter] = None,
     tracker: Optional[AuditTracker] = None,
+    defer_interpretation: bool = False,
 ) -> Dict[str, Any]:
     """执行确定性链路并保存；模型失败时保留盘面，允许只重试解释。"""
     if not isinstance(user_query, str) or not user_query.strip():
@@ -82,7 +84,13 @@ def run_divination_pipeline(
     if not isinstance(casting_input, dict):
         raise ValueError("起卦输入必须是字典。")
 
-    run_id = str(uuid.uuid4())
+    if run_id is None:
+        run_id = str(uuid.uuid4())
+    else:
+        try:
+            run_id = str(uuid.UUID(run_id))
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ValueError("run_id 必须是合法 UUID。") from error
     cast_mode = casting_input.get("mode", "manual")
     if cast_mode == "manual":
         cast_result = Caster.cast_manual(casting_input.get("lines"))
@@ -110,10 +118,14 @@ def run_divination_pipeline(
     ]
     ai_context = _build_ai_context(run_id, user_query.strip(), paipan, calendar)
     llm = interpreter or LLMInterpreter()
-    interpretation_status = "completed"
+    interpretation_status = "pending" if defer_interpretation else "completed"
     interpretation_error = None
     try:
-        llm_response = llm.interpret(ai_context)
+        llm_response = (
+            llm.pending_report(ai_context)
+            if defer_interpretation
+            else llm.interpret(ai_context)
+        )
         quality = evaluate_interpretation(llm_response, ai_context)
         if not quality["passed"]:
             raise ValueError("；".join(quality["issues"]))
@@ -162,6 +174,7 @@ def retry_divination_interpretation(
     *,
     interpreter: Optional[LLMInterpreter] = None,
     tracker: Optional[AuditTracker] = None,
+    require_audit_record: bool = True,
 ) -> Dict[str, Any]:
     """在不重新起卦和排盘的前提下，为同一 run_id 重新生成模型解释。"""
     required = {"run_id", "ai_context", "paipan", "calendar", "guardrail_log"}
@@ -185,9 +198,10 @@ def retry_divination_interpretation(
         }
     )
     audit = tracker or AuditTracker()
-    if not audit.update_interpretation(
+    updated_audit = audit.update_interpretation(
         result["run_id"], response, llm.last_metadata, logs
-    ):
+    )
+    if require_audit_record and not updated_audit:
         raise ValueError("找不到需要重试的审计记录。")
     updated = dict(result)
     updated["llm_response"] = response
@@ -196,6 +210,31 @@ def retry_divination_interpretation(
     updated["interpretation_error"] = None
     updated["guardrail_log"] = logs
     return updated
+
+
+def complete_deferred_interpretation(
+    result: Dict[str, Any],
+    *,
+    interpreter: Optional[LLMInterpreter] = None,
+    tracker: Optional[AuditTracker] = None,
+) -> Dict[str, Any]:
+    """完成后台解释；失败时保留确定性盘面和可展示的降级报告。"""
+    llm = interpreter or LLMInterpreter()
+    try:
+        return retry_divination_interpretation(
+            result,
+            interpreter=llm,
+            tracker=tracker,
+            require_audit_record=False,
+        )
+    except Exception as error:
+        fallback = llm.failure_report(result["ai_context"], error)
+        updated = dict(result)
+        updated["llm_response"] = fallback
+        updated["llm_metadata"] = dict(llm.last_metadata)
+        updated["interpretation_status"] = "failed"
+        updated["interpretation_error"] = str(error)
+        return updated
 
 
 def restore_divination_result(record: Dict[str, Any]) -> Dict[str, Any]:
