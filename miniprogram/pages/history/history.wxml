@@ -1,0 +1,28 @@
+<view class="safe-page">
+  <view class="page-head">
+    <text class="eyebrow">LOCAL · 仅存本机</text>
+    <text class="title">最近卦例</text>
+    <text class="muted description">当前版本最多保存 20 条完整结果，不会同步到其他设备。</text>
+  </view>
+
+  <view wx:if="{{!history.length}}" class="panel empty">
+    <text class="empty-symbol">☯</text>
+    <text>还没有完成的卦例</text>
+    <navigator class="primary-button start-link" open-type="navigateBack" delta="1">返回摇卦</navigator>
+  </view>
+
+  <view wx:else>
+    <view wx:for="{{history}}" wx:key="runId" class="panel history-card" bindtap="toggleItem" data-index="{{index}}">
+      <view class="card-top">
+        <view class="card-copy">
+          <text class="card-title">{{item.title}}</text>
+          <text class="card-question">{{item.question}}</text>
+        </view>
+        <text class="card-date">{{item.displayDate}}</text>
+      </view>
+      <text wx:if="{{item.expanded}}" class="card-interpretation">{{item.interpretation}}</text>
+      <text class="expand-hint">{{item.expanded ? '收起解读' : '查看解读'}}</text>
+    </view>
+    <button class="secondary-button clear-button" bindtap="clearHistory">清空本机卦例</button>
+  </view>
+</view>

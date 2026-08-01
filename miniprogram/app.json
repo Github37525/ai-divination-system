@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/history/history"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#071015",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "数智易学",
+    "backgroundColor": "#05090d",
+    "backgroundTextStyle": "dark"
+  },
+  "networkTimeout": {
+    "request": 60000
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

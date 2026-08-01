@@ -1,0 +1,65 @@
+<view class="safe-page">
+  <view class="topbar">
+    <view>
+      <text class="brand-mark">易</text>
+      <text class="brand-name">数智易学</text>
+    </view>
+    <navigator class="history-link" url="/pages/history/history">卦例</navigator>
+  </view>
+
+  <view wx:if="{{view === 'setup'}}" class="panel setup-panel">
+    <text class="eyebrow">01 · 明确所问</text>
+    <text class="hero-title">一念既起，六爻成象</text>
+    <text class="hero-copy muted">专注于一个具体问题。第一次摇出初爻，依次向上。</text>
+    <textarea class="question-input" maxlength="500" value="{{question}}" bindinput="onQuestionInput" placeholder="例如：未来六周，产品发布应优先关注什么？" placeholder-class="placeholder" />
+    <button class="primary-button" loading="{{busy}}" disabled="{{busy}}" bindtap="createCast">填写完成，开始摇卦</button>
+  </view>
+
+  <view wx:elif="{{view === 'cast'}}">
+    <view class="cast-head">
+      <view>
+        <text class="eyebrow">02 · 六次定爻</text>
+        <view class="progress"><text>{{lineCount}}</text><text class="progress-total"> / 6 爻</text></view>
+      </view>
+      <button class="sensor-pill {{motionEnabled ? 'active' : ''}}" bindtap="toggleMotion">{{motionEnabled ? '体感已启用' : '启用体感'}}</button>
+    </view>
+
+    <view class="coin-stage {{resolving ? 'resolving' : ''}}">
+      <view class="energy-ring" style="opacity: {{energyOpacity}}"></view>
+      <view class="coins">
+        <view wx:for="{{coins}}" wx:key="index" class="coin {{item.reverse ? 'reverse' : ''}}"><text>{{item.text}}</text></view>
+      </view>
+      <text class="stage-hint">{{stageHint}}</text>
+    </view>
+
+    <view class="actions">
+      <button class="primary-button" loading="{{busy}}" disabled="{{busy || lineCount >= 6}}" bindtap="tapCast">点按摇一爻</button>
+      <button class="secondary-button" disabled="{{busy || lineCount !== 6}}" bindtap="completeCast">生成完整盘面</button>
+    </view>
+
+    <view class="line-panel panel">
+      <view class="line-panel-head"><text>六爻记录</text><text class="muted">从初爻向上</text></view>
+      <view wx:if="{{!lineCount}}" class="empty-lines muted">等待第一爻落定</view>
+      <view wx:for="{{lines}}" wx:key="line_index" class="line-row">
+        <text class="line-glyph">{{item.glyph}}</text>
+        <view class="line-copy">
+          <text>{{item.fronts}}正{{item.reverses}}反 · {{item.line_type}}{{item.moving ? '（动）' : ''}}</text>
+          <text class="muted line-source">{{item.sourceLabel}}</text>
+        </view>
+        <text class="line-position">{{item.position_name}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:elif="{{view === 'result'}}" class="panel result-panel">
+    <text class="eyebrow">RESULT · 已成卦</text>
+    <text class="result-title">{{resultTitle}}</text>
+    <text class="result-meta">{{resultMeta}}</text>
+    <view wx:if="{{pending}}" class="pending-bar"><view class="pending-dot"></view><text>DeepSeek 正在生成白话解读</text></view>
+    <text class="interpretation">{{interpretation}}</text>
+    <button wx:if="{{pending}}" class="secondary-button" bindtap="refreshResult">立即刷新结果</button>
+    <button wx:else class="primary-button" bindtap="newCast">开始新的起卦</button>
+  </view>
+
+  <view class="status {{statusKind}}"><text>{{status}}</text></view>
+</view>
