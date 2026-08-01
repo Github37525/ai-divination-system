@@ -27,7 +27,20 @@ const setupPanel = $("#setupPanel");
 const castPanel = $("#castPanel");
 const resultPanel = $("#resultPanel");
 const stage = $("#coinStage");
-const coins = [...document.querySelectorAll("#coinStage .coin")];
+const coins = [...document.querySelectorAll("#coinStage .single-coin")];
+const instrumentArt = stage.querySelector(".instrument-art");
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const coinRestX = [-78, 0, 78];
+const coinRestY = [10, -3, 12];
+const coinRestRotation = [-10, 5, 13];
+const tossPatterns = [
+  { loft: 98, drift: 18, spinX: 720, spinY: 190 },
+  { loft: 116, drift: -14, spinX: 1080, spinY: -145 },
+  { loft: 92, drift: 11, spinX: 720, spinY: 230 },
+  { loft: 108, drift: -19, spinX: 1080, spinY: 170 },
+  { loft: 104, drift: 15, spinX: 720, spinY: -210 },
+  { loft: 118, drift: -10, spinX: 1080, spinY: 120 }
+];
 
 function setStatus(message, kind = "") {
   const badge = $("#connectionBadge");
@@ -67,7 +80,11 @@ function showCastPanel() {
   setupPanel.hidden = true;
   resultPanel.hidden = true;
   castPanel.hidden = false;
-  $("#lineProgress").textContent = String(state.lines.length);
+  syncCastProgress();
+  const lastLine = state.lines.at(-1);
+  $("#stageHint").textContent = lastLine
+    ? `${lastLine.position_name}：${lastLine.fronts}正${lastLine.reverses}反 · ${lastLine.line_type}`
+    : "轻触铜仪，摇出第一爻";
 }
 
 function saveDirectSession() {
@@ -107,8 +124,32 @@ function renderLine(line) {
   position.textContent = line.position_name;
   item.append(glyph, detail, position);
   $("#lineList").append(item);
-  $("#lineProgress").textContent = String(state.lines.length);
-  $("#completeButton").disabled = state.lines.length !== 6;
+  syncCastProgress();
+}
+
+function syncCastProgress() {
+  const count = state.lines.length;
+  const next = Math.min(count + 1, 6);
+  $("#lineProgress").textContent = String(count);
+  $("#nextLineNumber").textContent = String(next);
+  $("#lineDots").setAttribute("aria-label", `已完成 ${count} 爻`);
+  document.querySelectorAll("[data-line-slot]").forEach((slot, index) => {
+    slot.classList.toggle("is-complete", index < count);
+  });
+  $("#tapCastButton").textContent = count < 6 ? `摇第 ${next} 爻` : "六爻已成";
+  $("#tapCastButton").disabled = state.busy || count >= 6;
+  $("#motionButton").disabled = state.busy || count >= 6;
+  $("#completeButton").disabled = state.busy || count !== 6;
+  $("#guidanceTitle").textContent = count === 6 ? "六爻已成，天机可读" : "握稳手机，专注所问";
+  $("#guidanceCopy").textContent = count === 6
+    ? "系统已完成本卦、变卦与时空信息校验。"
+    : "可直接点按，也可启用体感后轻轻摇动手机。";
+}
+
+function setCastBusy(busy) {
+  state.busy = busy;
+  syncCastProgress();
+  if (busy) $("#tapCastButton").textContent = "正在听钱落定…";
 }
 
 function hapticFor(line) {
@@ -128,24 +169,66 @@ function vibrateResult() {
   return navigator.vibrate([35, 45, 35, 45, 100]);
 }
 
+function coinTransform(x, y, rotateX, rotateY, rotateZ, scale) {
+  return `translate3d(${x}px, ${y}px, 0) rotateX(${rotateX}deg) rotateY(${rotateY}deg) rotateZ(${rotateZ}deg) scale(${scale})`;
+}
+
 function animateLine(line) {
-  coins.forEach((coin, index) => coin.classList.toggle("reverse", index >= line.fronts));
-  if ($("#motionToggle").checked && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    stage.classList.remove("resolving");
-    void stage.offsetWidth;
-    stage.classList.add("resolving");
+  const simplify = reducedMotion() || !$("#motionToggle").checked;
+  const settleAfter = simplify ? 180 : 1420;
+  const tossIndex = Math.max(0, Number(line.line_index || state.lines.length + 1) - 1);
+  $("#stageHint").textContent = "铜钱翻转中…";
+
+  coins.forEach((coin, index) => {
+    const pattern = tossPatterns[(tossIndex + index * 2) % tossPatterns.length];
+    const restX = coinRestX[index];
+    const restY = coinRestY[index];
+    const restRotation = coinRestRotation[index];
+    const side = index === 0 ? 1 : -1;
+    coin.classList.remove("reverse");
+    coin.getAnimations().forEach(animation => animation.cancel());
+    const settled = coinTransform(restX, restY, 0, 0, restRotation, 1);
+    const keyframes = simplify ? [
+      { transform: settled, opacity: .7 },
+      { transform: coinTransform(restX, restY - 8, 0, 0, restRotation, 1.03), opacity: 1 },
+      { transform: settled, opacity: 1 }
+    ] : [
+      { transform: settled },
+      { transform: coinTransform(restX + pattern.drift * side, restY - pattern.loft * .72, pattern.spinX * .28, pattern.spinY * .35, restRotation + 12 * side, 1.05) },
+      { transform: coinTransform(restX + pattern.drift, restY - pattern.loft, pattern.spinX * .68, pattern.spinY, restRotation - 8 * side, 1.09) },
+      { transform: coinTransform(restX - pattern.drift * .25, restY + 15, pattern.spinX - 28, pattern.spinY * .4, restRotation + 5, .94) },
+      { transform: coinTransform(restX, restY - 7, pattern.spinX + 18, 8 * side, restRotation - 2, 1.025) },
+      { transform: coinTransform(restX, restY, pattern.spinX, 0, restRotation, 1) }
+    ];
+    coin.animate(keyframes, {
+      duration: simplify ? 160 : 1280 + index * 55,
+      delay: simplify ? 0 : index * 45,
+      easing: "cubic-bezier(.2,.76,.25,1)",
+      fill: "none"
+    });
+  });
+
+  if (!simplify) {
+    instrumentArt.getAnimations().forEach(animation => animation.cancel());
+    instrumentArt.animate([
+      { transform: "scale(1)", opacity: .66 },
+      { transform: "scale(1.018)", opacity: .76 },
+      { transform: "scale(1.006)", opacity: .7 },
+      { transform: "scale(1)", opacity: .66 }
+    ], { duration: 1380, easing: "cubic-bezier(.22,.72,.24,1)" });
   }
-  $("#stageHint").textContent = `${line.position_name}：${line.fronts}正${line.reverses}反 · ${line.line_type}`;
-  hapticFor(line);
-  renderLine(line);
+
   setTimeout(() => {
-    stage.classList.remove("resolving");
-    state.busy = false;
-  }, 1150);
+    coins.forEach((coin, index) => coin.classList.toggle("reverse", index >= line.fronts));
+    $("#stageHint").textContent = `${line.position_name}：${line.fronts}正${line.reverses}反 · ${line.line_type}`;
+    hapticFor(line);
+    renderLine(line);
+    setCastBusy(false);
+  }, settleAfter);
 }
 
 function showError(error) {
-  state.busy = false;
+  setCastBusy(false);
   setStatus(error.message || String(error), "error");
   $("#stageHint").textContent = error.message || String(error);
 }
@@ -222,8 +305,9 @@ function connectPairing(pairingId, token, attempt = 0) {
 async function triggerLine(triggerMode, energy = null) {
   if (state.busy || state.lines.length >= 6) return;
   if (!state.sessionId && !state.pairingId) return showError(new Error("请先创建或加入起卦会话。"));
-  state.busy = true;
-  $("#stageHint").textContent = "铜钱正在落定…";
+  setCastBusy(true);
+  $("#stageHint").textContent = "正在感应铜钱…";
+  if ($("#hapticToggle").checked && typeof navigator.vibrate === "function") navigator.vibrate(18);
   const idempotencyKey = newIdempotencyKey();
   try {
     if (state.pairingId) {
@@ -283,8 +367,7 @@ function handleMotion(event) {
   const energy = sample.energy;
   const cfg = state.config.motion;
   const ratio = Math.min(1, energy / cfg.shake_threshold);
-  $("#energyFill").style.opacity = String(.15 + ratio * .85);
-  $("#energyFill").style.transform = `rotate(${Math.round(ratio * 300)}deg)`;
+  stage.style.setProperty("--motion-energy", String(ratio));
   if (energy < cfg.shake_threshold || now - state.lastImpulseAt < 120) return;
   state.lastImpulseAt = now;
   if (changedDirection(state.lastImpulseVector, sample.vector)) state.directionChanges += 1;
@@ -497,6 +580,17 @@ $("#settingsButton").addEventListener("click", () => {
   const panel = $("#settingsPanel");
   panel.hidden = !panel.hidden;
   $("#settingsButton").setAttribute("aria-expanded", String(!panel.hidden));
+});
+
+$("#questionInput").addEventListener("input", event => {
+  $("#questionCount").textContent = String(event.target.value.length);
+});
+
+document.querySelectorAll(".intent-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".intent-chip").forEach(item => item.classList.remove("is-active"));
+    chip.classList.add("is-active");
+  });
 });
 
 boot();

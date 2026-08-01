@@ -1,4 +1,4 @@
-const CACHE = "shuzhi-experience-p0-v6";
+const CACHE = "shuzhi-experience-astronomy-v7";
 const SHELL = [
   "/",
   "/mobile",
@@ -6,6 +6,8 @@ const SHELL = [
   "/static/styles.css",
   "/static/mobile.js",
   "/static/desktop.js",
+  "/static/assets/astronomy/yi-cyber-hero.webp",
+  "/static/assets/astronomy/bronze-coin-single.png",
   "/manifest.webmanifest"
 ];
 

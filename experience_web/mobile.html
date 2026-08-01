@@ -3,74 +3,127 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <meta name="theme-color" content="#070b14">
+  <meta name="theme-color" content="#050a12">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/static/styles.css">
-  <title>手机体感摇卦 · 数智易学</title>
+  <title>手机体感摇卦 · 玄枢</title>
 </head>
 <body class="mobile-body">
   <main class="mobile-shell">
     <header class="compact-header">
-      <a href="/" class="brand">数智易学</a>
+      <a href="/" class="mobile-brand" aria-label="返回玄枢首页">
+        <span class="mobile-brand-mark"><img src="/static/assets/astronomy/bronze-coin-single.png" alt=""></span>
+        <span><strong>玄枢</strong><small>AI 易学推演</small></span>
+      </a>
       <span id="connectionBadge" class="status-badge">未开始</span>
     </header>
 
-    <section id="setupPanel" class="glass-panel setup-panel">
-      <p class="eyebrow">01 · 明确问题</p>
-      <h1>手机体感摇卦</h1>
-      <p class="muted">第一次为初爻，依次向上。传感器只识别动作，原始数据不会离开手机。</p>
-      <label for="questionInput">占问事项</label>
-      <textarea id="questionInput" rows="3" maxlength="500" placeholder="例如：未来六周产品发布节奏应优先关注什么？"></textarea>
-      <button id="createSessionButton" class="button primary full" type="button">填写完成，开始摇卦</button>
+    <section id="setupPanel" class="setup-flow">
+      <div class="mobile-hero">
+        <img src="/static/assets/astronomy/yi-cyber-hero.webp" alt="青铜天文仪与八卦星盘">
+        <div class="mobile-hero-copy">
+          <p class="eyebrow">天文铜仪 · 问事卦</p>
+          <h1>一念既起<br>万象有应</h1>
+          <p>静心片刻，把此刻最想厘清的一件事交给六爻。</p>
+        </div>
+      </div>
+
+      <div class="question-card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 / 定问</p>
+            <h2>你想问什么？</h2>
+          </div>
+          <span class="quiet-badge">隐私保护</span>
+        </div>
+        <label class="sr-only" for="questionInput">占问事项</label>
+        <div class="question-field">
+          <textarea id="questionInput" rows="4" maxlength="500" placeholder="例如：未来三个月，我应该如何推进事业计划？"></textarea>
+          <small><span id="questionCount">0</span>/500</small>
+        </div>
+        <div class="intent-row" aria-label="问事类型">
+          <button class="intent-chip is-active" type="button">事业</button>
+          <button class="intent-chip" type="button">感情</button>
+          <button class="intent-chip" type="button">财运</button>
+          <button class="intent-chip" type="button">其他</button>
+        </div>
+        <button id="createSessionButton" class="button primary full start-button" type="button">填写完成，开始摇卦</button>
+      </div>
+      <p class="responsible-note">传统文化辅助参考，不替代医疗、法律与投资建议。</p>
     </section>
 
     <section id="castPanel" class="cast-panel" hidden>
       <div class="progress-header">
         <div>
-          <p class="eyebrow">02 · 完成六次</p>
-          <h2><span id="lineProgress">0</span> / 6 爻</h2>
+          <p class="eyebrow">02 / 起卦</p>
+          <h2>第 <span id="nextLineNumber">1</span> 爻</h2>
         </div>
-        <button id="settingsButton" class="icon-button" type="button" aria-expanded="false">体验设置</button>
+        <div class="progress-count"><strong id="lineProgress">0</strong><small>/6</small></div>
       </div>
 
+      <button id="settingsButton" class="settings-trigger" type="button" aria-expanded="false">体验设置</button>
       <div id="settingsPanel" class="settings-panel" hidden>
         <label><input id="hapticToggle" type="checkbox" checked> 触觉反馈</label>
         <label><input id="motionToggle" type="checkbox" checked> 动态效果</label>
-        <p>系统“减少动态效果”开启时会自动使用简化动画。</p>
+        <p>系统开启“减少动态效果”时会自动使用简化动画。</p>
       </div>
 
-      <div id="coinStage" class="coin-stage" aria-label="三枚铜钱结果">
-        <div class="energy-orbit"><span id="energyFill"></span></div>
-        <div class="coin-set">
-          <div class="coin"><span>乾</span></div>
-          <div class="coin"><span>元</span></div>
-          <div class="coin"><span>通</span></div>
+      <div id="coinStage" class="coin-stage instrument-stage" aria-label="三枚铜钱摇卦结果">
+        <img class="instrument-art" src="/static/assets/astronomy/yi-cyber-hero.webp" alt="运转中的青铜天文仪">
+        <div class="coin-flight" aria-label="三枚青铜古钱">
+          <img class="single-coin" src="/static/assets/astronomy/bronze-coin-single.png" alt="" aria-hidden="true" draggable="false">
+          <img class="single-coin" src="/static/assets/astronomy/bronze-coin-single.png" alt="" aria-hidden="true" draggable="false">
+          <img class="single-coin" src="/static/assets/astronomy/bronze-coin-single.png" alt="" aria-hidden="true" draggable="false">
         </div>
-        <p id="stageHint" class="stage-hint">启用体感后轻轻摇动手机，或直接点按摇卦</p>
+        <p id="stageHint" class="stage-hint">轻触铜仪，摇出第一爻</p>
+      </div>
+
+      <div id="lineDots" class="line-dots" aria-label="已完成 0 爻">
+        <span data-line-slot="1"><i></i><small>1</small></span>
+        <span data-line-slot="2"><i></i><small>2</small></span>
+        <span data-line-slot="3"><i></i><small>3</small></span>
+        <span data-line-slot="4"><i></i><small>4</small></span>
+        <span data-line-slot="5"><i></i><small>5</small></span>
+        <span data-line-slot="6"><i></i><small>6</small></span>
+      </div>
+
+      <div class="cast-guidance">
+        <img class="guidance-mark" src="/static/assets/astronomy/bronze-coin-single.png" alt="">
+        <div><strong id="guidanceTitle">握稳手机，专注所问</strong><p id="guidanceCopy">可直接点按，也可启用体感后轻轻摇动手机。</p></div>
       </div>
 
       <div class="control-stack">
-        <button id="motionButton" class="button primary full" type="button">启用体感摇卦</button>
-        <button id="tapCastButton" class="button secondary full" type="button">点按摇一爻</button>
+        <button id="tapCastButton" class="button primary full cast-button" type="button">摇第 1 爻</button>
+        <button id="motionButton" class="button secondary full" type="button">启用体感摇卦</button>
       </div>
 
       <div class="line-ledger">
-        <div class="ledger-heading">
-          <strong>六爻记录</strong>
-          <span>从初爻向上</span>
-        </div>
+        <div class="ledger-heading"><strong>六爻记录</strong><span>从初爻向上</span></div>
         <ol id="lineList" class="line-list"></ol>
       </div>
 
-      <button id="completeButton" class="button primary full" type="button" disabled>生成完整盘面</button>
+      <button id="completeButton" class="button primary full" type="button" disabled>查看白话解卦</button>
     </section>
 
-    <section id="resultPanel" class="glass-panel result-panel" hidden>
-      <p class="eyebrow">RESULT · VERIFIED</p>
-      <h2 id="resultTitle">排盘完成</h2>
-      <p id="resultMeta" class="result-meta"></p>
-      <div id="resultInterpretation" class="result-copy"></div>
-      <p id="resultHapticStatus" class="muted small"></p>
+    <section id="resultPanel" class="result-panel" hidden>
+      <div class="result-hero">
+        <img src="/static/assets/astronomy/yi-cyber-hero.webp" alt="青铜天文仪推演完成">
+        <div class="result-hero-copy">
+          <p class="eyebrow">卦象已成 · 系统推演完成</p>
+          <div class="hexagram-seal"><img src="/static/assets/astronomy/bronze-coin-single.png" alt=""></div>
+          <h1 id="resultTitle">排盘完成</h1>
+          <p id="resultMeta" class="result-meta"></p>
+        </div>
+      </div>
+
+      <div class="plain-conclusion">
+        <div class="section-heading">
+          <div><p class="eyebrow">一眼结论</p><h2>接下来怎么做</h2></div>
+          <span class="trend-badge">白话解读</span>
+        </div>
+        <div id="resultInterpretation" class="result-copy"></div>
+      </div>
+      <p id="resultHapticStatus" class="muted small result-haptic-status"></p>
       <div class="result-actions">
         <button id="resultHapticButton" class="button primary full" type="button" hidden>触觉确认</button>
         <a id="newCastLink" href="/mobile" class="button secondary full">开始新的起卦</a>
