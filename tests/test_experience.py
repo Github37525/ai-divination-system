@@ -146,7 +146,12 @@ class ExperienceApiTests(unittest.TestCase):
             config = self.client.get("/v1/config").json()
         self.assertTrue(config["llm"]["configured"])
         self.assertNotIn("test-secret", str(config))
-        self.assertIn("手机体感摇卦", self.client.get("/mobile").text)
+        mobile_page = self.client.get("/mobile").text
+        self.assertIn("手机体感摇卦", mobile_page)
+        self.assertIn("填写完成，开始摇卦", mobile_page)
+        self.assertNotIn("电脑", mobile_page)
+        self.assertNotIn("配对码", mobile_page)
+        self.assertNotIn("joinCodeButton", mobile_page)
         self.assertIn("电脑手机协同", self.client.get("/desktop").text)
 
         created = self.client.post(

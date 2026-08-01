@@ -187,21 +187,6 @@ function connectPairing(pairingId, token, attempt = 0) {
   });
 }
 
-async function joinPairingCode() {
-  const code = $("#pairingCodeInput").value.trim();
-  if (!/^\d{6}$/.test(code)) return showError(new Error("请输入六位配对码。"));
-  try {
-    const pairing = await requestJson("/v1/pairing-sessions/join", {
-      method: "POST",
-      body: JSON.stringify({ pairing_code: code })
-    });
-    history.replaceState(null, "", `/mobile?pairing=${encodeURIComponent(pairing.pairing_id)}&token=${encodeURIComponent(pairing.pairing_token)}`);
-    connectPairing(pairing.pairing_id, pairing.pairing_token);
-  } catch (error) {
-    showError(error);
-  }
-}
-
 async function triggerLine(triggerMode, energy = null) {
   if (state.busy || state.lines.length >= 6) return;
   if (!state.sessionId && !state.pairingId) return showError(new Error("请先创建或加入起卦会话。"));
@@ -341,7 +326,9 @@ function showResult(payload) {
   $("#resultMeta").textContent = `Run ID · ${(payload.run_id || "").slice(0, 8)} · ${interpretationLabel(summary)}`;
   renderInterpretation(
     $("#resultInterpretation"),
-    summary.interpretation || "完整盘面已经生成，可回到电脑查看详细证据。"
+    summary.interpretation || (state.pairingId
+      ? "完整盘面已经生成，可回到电脑查看详细证据。"
+      : "完整盘面已经生成，可在本页查看解读与六爻结果。")
   );
   setStatus("六爻完成", "connected");
   const hapticButton = $("#resultHapticButton");
@@ -381,7 +368,6 @@ async function boot() {
 }
 
 $("#createSessionButton").addEventListener("click", createDirectSession);
-$("#joinCodeButton").addEventListener("click", joinPairingCode);
 $("#tapCastButton").addEventListener("click", () => triggerLine("tap"));
 $("#motionButton").addEventListener("click", enableMotion);
 $("#completeButton").addEventListener("click", completeCast);
