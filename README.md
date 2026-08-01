@@ -13,8 +13,10 @@
 - 追问式解读、同题提醒、失败原记录重试与三十分钟会话记忆
 - SQLite 审计、历史查询、单条/批量清理、保留期、导出和四状态反馈
 - 传统易经与赛博仪器融合的 Streamlit 四入口界面，含减弱动态偏好适配
+- P0 Experience API：安全随机承诺、幂等单爻、手机体感/点按摇卦和电脑实时协同
 
 规则来源与流派约定见 [data/SOURCES.md](data/SOURCES.md) 和 [docs/QIMEN_RULES.md](docs/QIMEN_RULES.md)。
+下一阶段的 H5、微信小程序、原生 App、手机体感摇卦和电脑手机协同规划见 [PRD v3.0](divination_system_prd_v3.md)。
 
 ## 本地运行
 
@@ -22,6 +24,20 @@
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
+
+手机摇卦与电脑协同使用独立服务，另开一个终端运行：
+
+```powershell
+python -m experience
+```
+
+浏览器访问 `http://127.0.0.1:8770/`。手机真机需要通过 HTTPS 地址访问，才能在主流浏览器中申请设备运动权限。若要从 Streamlit 侧边栏进入该服务，可设置 `EXPERIENCE_PUBLIC_URL` 为其公开 HTTPS 地址。
+
+首批实现采用进程内临时会话：起卦会话默认 30 分钟、配对入口默认 5 分钟。单机/单进程可以直接使用；多实例部署前必须把 `SessionStore` 替换为 Redis 等共享会话存储。
+
+## Experience API 部署
+
+仓库根目录的 `render.yaml` 定义了支持 HTTPS/WSS 的 Render Web Service。服务启动后会使用 Render 提供的公网主机名生成二维码；如绑定自定义域名，则设置 `EXPERIENCE_PUBLIC_URL=https://你的域名`。当前 P0 使用进程内会话，因此只应运行单实例，重新部署或实例重启会清除未完成的临时会话。
 
 不配置密钥也能使用完整确定性排盘，解读区会明确显示离线模式。需要 DeepSeek 时设置：
 
@@ -46,7 +62,7 @@ DEEPSEEK_API_KEY = "你的 DeepSeek 密钥"
 
 ```powershell
 python -m unittest discover -s tests -v
-python -m compileall -q app.py main.py engine tests
+python -m compileall -q app.py main.py engine experience tests
 python -m pip check
 ```
 

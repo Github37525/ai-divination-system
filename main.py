@@ -72,6 +72,7 @@ def run_divination_pipeline(
     user_query: str,
     casting_input: dict,
     *,
+    run_id: Optional[str] = None,
     now: Optional[datetime] = None,
     interpreter: Optional[LLMInterpreter] = None,
     tracker: Optional[AuditTracker] = None,
@@ -82,7 +83,13 @@ def run_divination_pipeline(
     if not isinstance(casting_input, dict):
         raise ValueError("起卦输入必须是字典。")
 
-    run_id = str(uuid.uuid4())
+    if run_id is None:
+        run_id = str(uuid.uuid4())
+    else:
+        try:
+            run_id = str(uuid.UUID(run_id))
+        except (TypeError, ValueError, AttributeError) as error:
+            raise ValueError("run_id 必须是合法 UUID。") from error
     cast_mode = casting_input.get("mode", "manual")
     if cast_mode == "manual":
         cast_result = Caster.cast_manual(casting_input.get("lines"))

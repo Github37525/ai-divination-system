@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ai-divination-experience
+    runtime: python
+    plan: free
+    region: singapore
+    branch: codex/experience-deploy
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn experience.api:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit

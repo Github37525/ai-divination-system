@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#070b14">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/styles.css">
+  <title>手机体感摇卦 · 数智易学</title>
+</head>
+<body class="mobile-body">
+  <main class="mobile-shell">
+    <header class="compact-header">
+      <a href="/" class="brand">数智易学</a>
+      <span id="connectionBadge" class="status-badge">未开始</span>
+    </header>
+
+    <section id="setupPanel" class="glass-panel setup-panel">
+      <p class="eyebrow">01 · 明确问题</p>
+      <h1>手机体感摇卦</h1>
+      <p class="muted">第一次为初爻，依次向上。传感器只识别动作，原始数据不会离开手机。</p>
+      <label for="questionInput">占问事项</label>
+      <textarea id="questionInput" rows="3" maxlength="500" placeholder="例如：未来六周产品发布节奏应优先关注什么？"></textarea>
+      <div class="field-row">
+        <label for="pairingCodeInput">已有电脑配对码</label>
+        <div class="inline-field">
+          <input id="pairingCodeInput" inputmode="numeric" maxlength="6" placeholder="六位配对码">
+          <button id="joinCodeButton" class="button secondary" type="button">加入</button>
+        </div>
+      </div>
+      <button id="createSessionButton" class="button primary full" type="button">创建手机起卦</button>
+    </section>
+
+    <section id="castPanel" class="cast-panel" hidden>
+      <div class="progress-header">
+        <div>
+          <p class="eyebrow">02 · 完成六次</p>
+          <h2><span id="lineProgress">0</span> / 6 爻</h2>
+        </div>
+        <button id="settingsButton" class="icon-button" type="button" aria-expanded="false">体验设置</button>
+      </div>
+
+      <div id="settingsPanel" class="settings-panel" hidden>
+        <label><input id="hapticToggle" type="checkbox" checked> 触觉反馈</label>
+        <label><input id="motionToggle" type="checkbox" checked> 动态效果</label>
+        <p>系统“减少动态效果”开启时会自动使用简化动画。</p>
+      </div>
+
+      <div id="coinStage" class="coin-stage" aria-label="三枚铜钱结果">
+        <div class="energy-orbit"><span id="energyFill"></span></div>
+        <div class="coin-set">
+          <div class="coin"><span>乾</span></div>
+          <div class="coin"><span>元</span></div>
+          <div class="coin"><span>通</span></div>
+        </div>
+        <p id="stageHint" class="stage-hint">启用体感后轻轻摇动手机，或直接点按摇卦</p>
+      </div>
+
+      <div class="control-stack">
+        <button id="motionButton" class="button primary full" type="button">启用体感摇卦</button>
+        <button id="tapCastButton" class="button secondary full" type="button">点按摇一爻</button>
+      </div>
+
+      <div class="line-ledger">
+        <div class="ledger-heading">
+          <strong>六爻记录</strong>
+          <span>从初爻向上</span>
+        </div>
+        <ol id="lineList" class="line-list"></ol>
+      </div>
+
+      <button id="completeButton" class="button primary full" type="button" disabled>生成完整盘面</button>
+    </section>
+
+    <section id="resultPanel" class="glass-panel result-panel" hidden>
+      <p class="eyebrow">RESULT · VERIFIED</p>
+      <h2 id="resultTitle">排盘完成</h2>
+      <p id="resultMeta" class="result-meta"></p>
+      <div id="resultInterpretation" class="result-copy"></div>
+      <a href="/mobile" class="button secondary full">开始新的起卦</a>
+    </section>
+
+    <div id="liveStatus" class="sr-only" aria-live="polite"></div>
+  </main>
+  <script src="/static/mobile.js" defer></script>
+</body>
+</html>

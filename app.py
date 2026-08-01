@@ -847,6 +847,12 @@ with st.sidebar:
     st.caption("当前支持手动精确经纬度；历法按节气时刻与真太阳时计算。")
     llm_status = "DeepSeek 已连接" if get_deepseek_key() else "离线确定性模式"
     st.markdown(f'<div class="status-pill">{llm_status}</div>', unsafe_allow_html=True)
+    experience_url = os.getenv("EXPERIENCE_PUBLIC_URL", "").strip().rstrip("/")
+    if experience_url:
+        st.divider()
+        st.markdown('<div class="sidebar-title">多端起卦</div>', unsafe_allow_html=True)
+        st.link_button("手机摇卦 · 电脑协同", experience_url, use_container_width=True)
+        st.caption("手机体感、点按降级与电脑实时同步由独立 Experience API 提供。")
 
 
 sixyao_tab, asking_tab, lifelong_tab, history_tab = st.tabs(
