@@ -10,6 +10,7 @@ const desktopState = {
 const $d = selector => document.querySelector(selector);
 const desktopStage = $d("#desktopCoinStage");
 const desktopCoins = [...document.querySelectorAll("#desktopCoinStage .coin")];
+const DESKTOP_PAIRING_KEY = "shuzhi.desktop-pairing.v1";
 
 function desktopStatus(message, kind = "") {
   const badge = $d("#desktopConnectionBadge");
@@ -64,6 +65,22 @@ function renderQr(qrUrl) {
   target.append(image);
 }
 
+function saveDesktopPairing(pairing) {
+  sessionStorage.setItem(DESKTOP_PAIRING_KEY, JSON.stringify(pairing));
+}
+
+function applyDesktopPairing(pairing) {
+  desktopState.pairingId = pairing.pairing_id;
+  desktopState.pairingToken = pairing.pairing_token;
+  desktopState.mobileUrl = pairing.mobile_url;
+  $d("#pairingDetails").hidden = false;
+  $d("#pairingCode").textContent = pairing.pairing_code;
+  $d("#pairingExpiry").textContent = `配对入口将在 ${new Date(pairing.expires_at).toLocaleTimeString()} 前有效`;
+  $d("#desktopRunId").textContent = `RUN · ${pairing.run_id.slice(0, 8)}`;
+  renderQr(pairing.qr_url);
+  connectDesktopSocket(pairing);
+}
+
 async function createPairing() {
   const question = $d("#desktopQuestion").value.trim();
   if (!question) return desktopStatus("请先写下本次占问事项。", "error");
@@ -73,17 +90,25 @@ async function createPairing() {
       method: "POST",
       body: JSON.stringify({ question })
     });
-    desktopState.pairingId = pairing.pairing_id;
-    desktopState.pairingToken = pairing.pairing_token;
-    desktopState.mobileUrl = pairing.mobile_url;
-    $d("#pairingDetails").hidden = false;
-    $d("#pairingCode").textContent = pairing.pairing_code;
-    $d("#pairingExpiry").textContent = `配对入口将在 ${new Date(pairing.expires_at).toLocaleTimeString()} 前有效`;
-    $d("#desktopRunId").textContent = `RUN · ${pairing.run_id.slice(0, 8)}`;
-    renderQr(pairing.qr_url);
-    connectDesktopSocket(pairing);
+    saveDesktopPairing(pairing);
+    applyDesktopPairing(pairing);
   } catch (error) {
     desktopStatus(error.message, "error");
+  }
+}
+
+function restoreDesktopPairing() {
+  const stored = sessionStorage.getItem(DESKTOP_PAIRING_KEY);
+  if (!stored) return;
+  try {
+    const pairing = JSON.parse(stored);
+    if (!pairing.pairing_id || !pairing.pairing_token || Date.parse(pairing.expires_at) <= Date.now()) {
+      throw new Error("配对已过期。");
+    }
+    applyDesktopPairing(pairing);
+    desktopStatus("正在恢复协同会话…");
+  } catch (_) {
+    sessionStorage.removeItem(DESKTOP_PAIRING_KEY);
   }
 }
 
@@ -106,6 +131,19 @@ function connectDesktopSocket(pairing, attempt = 0) {
   });
   socket.addEventListener("message", event => {
     const message = JSON.parse(event.data);
+    if (message.type === "session_snapshot") {
+      desktopState.lines = [];
+      $d("#desktopLineList").replaceChildren();
+      (message.lines || []).forEach(renderDesktopLine);
+      const completion = message.completion;
+      if (completion) {
+        if (["interpretation_pending", "interpreting"].includes(completion.status)) {
+          showDesktopPrepared(completion);
+        } else {
+          showDesktopResult(completion);
+        }
+      }
+    }
     if (message.type === "peer_status" && message.role === "mobile") {
       if (message.status === "connected") {
         desktopStatus("手机已连接", "connected");
@@ -115,9 +153,25 @@ function connectDesktopSocket(pairing, attempt = 0) {
       }
     }
     if (message.type === "line_locked") renderDesktopLine(message.line);
+    if (message.type === "cast_prepared") showDesktopPrepared(message);
     if (message.type === "cast_completed") showDesktopResult(message);
     if (message.type === "error") desktopStatus(message.message, "error");
   });
+}
+
+function showDesktopPrepared(message) {
+  desktopState.busy = false;
+  const summary = message.result_summary || {};
+  $d("#desktopResult").hidden = false;
+  $d("#desktopResultTitle").textContent = summary.changed_hexagram_name
+    ? `${summary.hexagram_name || "本卦"} → ${summary.changed_hexagram_name}`
+    : summary.hexagram_name || "盘面已完成";
+  $d("#desktopResultMeta").textContent = `Run ID · ${(message.run_id || "").slice(0, 8)} · DeepSeek 解读生成中`;
+  renderDesktopInterpretation(
+    $d("#desktopResultCopy"),
+    summary.interpretation || "确定性盘面已完成，DeepSeek 正在后台生成白话解读。"
+  );
+  desktopStatus("盘面已完成 · DeepSeek 解读生成中", "connected");
 }
 
 function lineGlyph(line) { return line.value % 2 === 0 ? "⚋" : "⚊"; }
@@ -205,3 +259,5 @@ async function copyMobileLink() {
 $d("#createPairingButton").addEventListener("click", createPairing);
 $d("#copyLinkButton").addEventListener("click", copyMobileLink);
 $d("#desktopCompleteButton").addEventListener("click", completeOnDesktop);
+
+restoreDesktopPairing();

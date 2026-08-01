@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from engine.caster import Caster
 from experience.api import create_app
+from experience.rate_limit import RateLimiter
 from experience.sessions import ExperienceSessionError, SessionStore
 
 
@@ -16,7 +17,14 @@ class StubPipeline:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def __call__(self, question: str, casting_input: dict, *, run_id: str) -> dict:
+    def __call__(
+        self,
+        question: str,
+        casting_input: dict,
+        *,
+        run_id: str,
+        defer_interpretation: bool = False,
+    ) -> dict:
         self.calls.append(
             {"question": question, "casting_input": casting_input, "run_id": run_id}
         )
@@ -30,21 +38,51 @@ class StubPipeline:
                 "moving_lines": cast_result["moving_lines"],
                 "focus_analysis": {"primary_line": 1, "type": "测试焦点"},
             },
-            "interpretation_status": "completed",
+            "interpretation_status": "pending" if defer_interpretation else "completed",
             "llm_metadata": {
                 "provider": "deepseek",
                 "model": "deepseek-test",
-                "mode": "api",
-                "ai_generated": True,
+                "mode": "pending" if defer_interpretation else "api",
+                "ai_generated": not defer_interpretation,
             },
-            "llm_response": "这是只用于接口测试的受约束解读。",
+            "llm_response": (
+                "确定性盘面已完成，测试解释正在后台生成。"
+                if defer_interpretation
+                else "这是只用于接口测试的受约束解读。"
+            ),
         }
+
+
+class StubInterpretationRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self, result: dict, *, allow_api: bool) -> dict:
+        self.calls.append({"run_id": result["run_id"], "allow_api": allow_api})
+        updated = dict(result)
+        updated["interpretation_status"] = "completed"
+        updated["llm_metadata"] = {
+            "provider": "deepseek",
+            "model": "deepseek-test",
+            "mode": "api" if allow_api else "offline",
+            "ai_generated": allow_api,
+        }
+        updated["llm_response"] = (
+            "这是后台完成的 DeepSeek 测试解读。"
+            if allow_api
+            else "AI 限额已用完，返回离线规则解读。"
+        )
+        return updated
 
 
 class ExperienceSessionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.pipeline = StubPipeline()
-        self.store = SessionStore(pipeline=self.pipeline)
+        self.runner = StubInterpretationRunner()
+        self.store = SessionStore(
+            pipeline=self.pipeline,
+            interpretation_runner=self.runner,
+        )
 
     def test_lines_are_idempotent_auditable_and_complete_once(self) -> None:
         session = self.store.create_cast_session("未来六周应优先关注什么？")
@@ -133,11 +171,55 @@ class ExperienceSessionTests(unittest.TestCase):
         )
         self.assertEqual(line["line_count"], 1)
 
+    def test_deferred_interpretation_preserves_deterministic_result(self) -> None:
+        session = self.store.create_cast_session("异步解释测试")
+        for index in range(6):
+            self.store.lock_next_line(
+                session["session_id"],
+                session["session_token"],
+                f"deferred-line-{index}",
+            )
+        prepared = self.store.prepare_cast_session(
+            session["session_id"], session["session_token"]
+        )
+        self.assertEqual(prepared["status"], "interpretation_pending")
+        self.assertEqual(len(prepared["lines"]), 6)
+        self.assertFalse(prepared["result_summary"]["ai_generated"])
+        pending_session = self.store._load_session(session["session_id"])
+        restored_pending = self.store._session_from_json(
+            self.store._session_to_json(pending_session)
+        )
+        self.assertEqual(restored_pending.result["interpretation_status"], "pending")
+
+        completed = self.store.run_pending_interpretation(
+            session["session_id"], session["session_token"]
+        )
+        self.assertEqual(completed["status"], "completed")
+        self.assertTrue(completed["result_summary"]["ai_generated"])
+        self.assertEqual(completed["run_id"], prepared["run_id"])
+        self.assertEqual(completed["seed_commitment"], prepared["seed_commitment"])
+
+    def test_session_json_round_trip_keeps_resume_state(self) -> None:
+        session = self.store.create_cast_session("Redis 序列化测试")
+        self.store.lock_next_line(
+            session["session_id"], session["session_token"], "resume-line"
+        )
+        stored = self.store._load_session(session["session_id"])
+        encoded = self.store._session_to_json(stored)
+        restored = self.store._session_from_json(encoded)
+        self.assertEqual(restored.session_id, stored.session_id)
+        self.assertEqual(restored.seed, stored.seed)
+        self.assertEqual(restored.lines, stored.lines)
+
 
 class ExperienceApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.pipeline = StubPipeline()
-        self.store = SessionStore(pipeline=self.pipeline)
+        self.runner = StubInterpretationRunner()
+        self.store = SessionStore(
+            pipeline=self.pipeline,
+            interpretation_runner=self.runner,
+        )
         self.client = TestClient(create_app(self.store))
 
     def test_static_entries_and_direct_cast_api(self) -> None:
@@ -180,8 +262,15 @@ class ExperienceApiTests(unittest.TestCase):
             f"/v1/cast-sessions/{session['session_id']}/complete",
             headers=headers,
         )
-        self.assertEqual(completed.status_code, 200)
-        self.assertEqual(completed.json()["status"], "completed")
+        self.assertEqual(completed.status_code, 202)
+        self.assertEqual(completed.json()["status"], "interpretation_pending")
+        result = self.client.get(
+            f"/v1/cast-sessions/{session['session_id']}/result",
+            headers=headers,
+        )
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["status"], "completed")
+        self.assertTrue(result.json()["result_summary"]["ai_generated"])
         self.assertEqual(len(self.pipeline.calls), 1)
 
     def test_mobile_and_desktop_receive_same_websocket_line(self) -> None:
@@ -207,12 +296,16 @@ class ExperienceApiTests(unittest.TestCase):
         with self.client.websocket_connect(
             f"{base}?token={token}&role=desktop"
         ) as desktop:
+            desktop_snapshot = desktop.receive_json()
+            self.assertEqual(desktop_snapshot["type"], "session_snapshot")
             desktop_connected = desktop.receive_json()
             self.assertEqual(desktop_connected["type"], "peer_status")
             with self.client.websocket_connect(
                 f"{base}?token={token}&role=mobile"
             ) as mobile:
                 mobile_seen_by_desktop = desktop.receive_json()
+                mobile_snapshot = mobile.receive_json()
+                self.assertEqual(mobile_snapshot["type"], "session_snapshot")
                 mobile_self_status = mobile.receive_json()
                 self.assertEqual(mobile_seen_by_desktop["role"], "mobile")
                 self.assertEqual(mobile_self_status["role"], "mobile")
@@ -228,6 +321,20 @@ class ExperienceApiTests(unittest.TestCase):
                 mobile_line = mobile.receive_json()
                 self.assertEqual(desktop_line["type"], "line_locked")
                 self.assertEqual(desktop_line["line"], mobile_line["line"])
+
+    def test_create_rate_limit_returns_retry_after(self) -> None:
+        client = TestClient(create_app(
+            SessionStore(pipeline=self.pipeline),
+            limiter=RateLimiter(),
+        ))
+        with patch.dict(
+            "os.environ", {"EXPERIENCE_CREATE_LIMIT_PER_MINUTE": "1"}
+        ):
+            first = client.post("/v1/cast-sessions", json={"question": "第一次"})
+            second = client.post("/v1/cast-sessions", json={"question": "第二次"})
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 429)
+        self.assertIn("retry-after", second.headers)
 
 
 if __name__ == "__main__":

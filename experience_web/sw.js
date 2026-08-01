@@ -1,4 +1,4 @@
-const CACHE = "shuzhi-experience-p0-v5";
+const CACHE = "shuzhi-experience-p0-v6";
 const SHELL = [
   "/",
   "/mobile",

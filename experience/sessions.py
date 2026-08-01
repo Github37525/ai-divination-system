@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import os
 import secrets
 import threading
 import uuid
+from contextlib import contextmanager
+from dataclasses import asdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
@@ -45,6 +49,8 @@ class CastSession:
     idempotency_results: dict[str, dict] = field(default_factory=dict)
     status: str = "ready"
     result: Optional[dict] = None
+    interpretation_started_at: Optional[datetime] = None
+    ai_allowed: Optional[bool] = None
 
 
 @dataclass
@@ -67,15 +73,159 @@ class SessionStore:
         self,
         *,
         pipeline: Optional[PipelineCallable] = None,
+        interpretation_runner: Optional[PipelineCallable] = None,
         session_ttl: timedelta = timedelta(minutes=30),
         pairing_ttl: timedelta = timedelta(minutes=5),
+        redis_url: Optional[str] = None,
     ) -> None:
         self._pipeline = pipeline
+        self._interpretation_runner = interpretation_runner
         self._session_ttl = session_ttl
         self._pairing_ttl = pairing_ttl
         self._sessions: dict[str, CastSession] = {}
         self._pairings: dict[str, PairingSession] = {}
         self._lock = threading.RLock()
+        self._redis = self._connect_redis(
+            os.environ.get("REDIS_URL", "").strip() if redis_url is None else redis_url
+        )
+
+    @staticmethod
+    def _connect_redis(redis_url: Optional[str]) -> Any:
+        if not redis_url:
+            return None
+        try:
+            from redis import Redis
+
+            client = Redis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_connect_timeout=3,
+                socket_timeout=5,
+                health_check_interval=30,
+            )
+            client.ping()
+            return client
+        except Exception as error:
+            if os.environ.get("EXPERIENCE_REQUIRE_REDIS", "0") == "1":
+                raise RuntimeError("Redis 会话存储连接失败。") from error
+            return None
+
+    @property
+    def redis_client(self) -> Any:
+        return self._redis
+
+    @property
+    def backend_name(self) -> str:
+        return "redis" if self._redis is not None else "memory"
+
+    @staticmethod
+    def _session_to_json(session: CastSession) -> str:
+        payload = asdict(session)
+        payload["seed"] = session.seed.hex()
+        for key in ("created_at", "expires_at", "interpretation_started_at"):
+            value = payload.get(key)
+            payload[key] = value.isoformat() if isinstance(value, datetime) else None
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _session_from_json(payload: str) -> CastSession:
+        data = json.loads(payload)
+        data["seed"] = bytes.fromhex(data["seed"])
+        for key in ("created_at", "expires_at", "interpretation_started_at"):
+            data[key] = datetime.fromisoformat(data[key]) if data.get(key) else None
+        return CastSession(**data)
+
+    @staticmethod
+    def _pairing_to_json(pairing: PairingSession) -> str:
+        payload = asdict(pairing)
+        payload["created_at"] = pairing.created_at.isoformat()
+        payload["expires_at"] = pairing.expires_at.isoformat()
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _pairing_from_json(payload: str) -> PairingSession:
+        data = json.loads(payload)
+        data["created_at"] = datetime.fromisoformat(data["created_at"])
+        data["expires_at"] = datetime.fromisoformat(data["expires_at"])
+        return PairingSession(**data)
+
+    @staticmethod
+    def _ttl_seconds(expires_at: datetime) -> int:
+        return max(1, int((expires_at - _utcnow()).total_seconds()))
+
+    def _save_session(self, session: CastSession) -> None:
+        self._sessions[session.session_id] = session
+        if self._redis is not None:
+            self._redis.setex(
+                f"experience:session:{session.session_id}",
+                self._ttl_seconds(session.expires_at),
+                self._session_to_json(session),
+            )
+
+    def _load_session(self, session_id: str) -> Optional[CastSession]:
+        if self._redis is None:
+            return self._sessions.get(session_id)
+        payload = self._redis.get(f"experience:session:{session_id}")
+        if not payload:
+            self._sessions.pop(session_id, None)
+            return None
+        session = self._session_from_json(payload)
+        self._sessions[session_id] = session
+        return session
+
+    def _save_pairing(self, pairing: PairingSession) -> None:
+        self._pairings[pairing.pairing_id] = pairing
+        if self._redis is not None:
+            ttl = self._ttl_seconds(pairing.expires_at)
+            pipeline = self._redis.pipeline()
+            pipeline.setex(
+                f"experience:pairing:{pairing.pairing_id}",
+                ttl,
+                self._pairing_to_json(pairing),
+            )
+            pipeline.setex(f"experience:pairing-code:{pairing.code}", ttl, pairing.pairing_id)
+            pipeline.execute()
+
+    def _load_pairing(self, pairing_id: str) -> Optional[PairingSession]:
+        if self._redis is None:
+            return self._pairings.get(pairing_id)
+        payload = self._redis.get(f"experience:pairing:{pairing_id}")
+        if not payload:
+            self._pairings.pop(pairing_id, None)
+            return None
+        pairing = self._pairing_from_json(payload)
+        self._pairings[pairing_id] = pairing
+        return pairing
+
+    def _load_pairing_by_code(self, code: str) -> Optional[PairingSession]:
+        if self._redis is None:
+            return next(
+                (item for item in self._pairings.values() if item.code == code),
+                None,
+            )
+        pairing_id = self._redis.get(f"experience:pairing-code:{code}")
+        return self._load_pairing(pairing_id) if pairing_id else None
+
+    @contextmanager
+    def _distributed_lock(self, name: str):
+        if self._redis is None:
+            with self._lock:
+                yield
+            return
+        lock = self._redis.lock(
+            f"experience:lock:{name}", timeout=60, blocking_timeout=5
+        )
+        acquired = lock.acquire(blocking=True)
+        if not acquired:
+            raise ExperienceSessionError("会话正忙，请稍后重试。")
+        try:
+            with self._lock:
+                yield
+        finally:
+            try:
+                lock.release()
+            except Exception:
+                pass
 
     def _cleanup(self) -> None:
         now = _utcnow()
@@ -163,9 +313,9 @@ class SessionStore:
             created_at=now,
             expires_at=now + self._session_ttl,
         )
-        with self._lock:
+        with self._distributed_lock(f"session-create:{session.session_id}"):
             self._cleanup()
-            self._sessions[session.session_id] = session
+            self._save_session(session)
         return {**self._public_session(session), "session_token": token}
 
     @staticmethod
@@ -185,7 +335,7 @@ class SessionStore:
 
     def _require_session(self, session_id: str, token: str) -> CastSession:
         self._cleanup()
-        session = self._sessions.get(session_id)
+        session = self._load_session(session_id)
         if session is None:
             raise ExperienceSessionError("起卦会话不存在或已过期。")
         if not token or not hmac.compare_digest(
@@ -230,7 +380,7 @@ class SessionStore:
                 raise ExperienceSessionError("动作能量必须是数字。")
             normalized_energy = round(max(0.0, min(float(motion_energy), 100.0)), 2)
 
-        with self._lock:
+        with self._distributed_lock(f"session:{session_id}"):
             session = self._require_session(session_id, token)
             existing = session.idempotency_results.get(idempotency_key)
             if existing is not None:
@@ -264,10 +414,11 @@ class SessionStore:
                 "line": dict(line),
             }
             session.idempotency_results[idempotency_key] = response
+            self._save_session(session)
             return dict(response)
 
     def complete_cast_session(self, session_id: str, token: str) -> dict:
-        with self._lock:
+        with self._distributed_lock(f"session:{session_id}"):
             session = self._require_session(session_id, token)
             if session.result is not None:
                 return self._completion_payload(session)
@@ -276,6 +427,7 @@ class SessionStore:
             if session.status == "completing":
                 raise ExperienceSessionError("排盘正在生成，请勿重复提交。")
             session.status = "completing"
+            self._save_session(session)
             question = session.question
             run_id = session.run_id
             casting_input = {
@@ -299,16 +451,144 @@ class SessionStore:
         try:
             result = pipeline(question, casting_input, run_id=run_id)
         except Exception:
-            with self._lock:
-                current = self._sessions.get(session_id)
+            with self._distributed_lock(f"session:{session_id}"):
+                current = self._load_session(session_id)
                 if current is not None:
                     current.status = "ready_to_complete"
+                    self._save_session(current)
             raise
 
-        with self._lock:
+        with self._distributed_lock(f"session:{session_id}"):
             session = self._require_session(session_id, token)
             session.result = result
             session.status = "completed"
+            self._save_session(session)
+            return self._completion_payload(session)
+
+    def prepare_cast_session(
+        self, session_id: str, token: str, *, allow_api: bool = True
+    ) -> dict:
+        """先完成确定性排盘，并把模型解释标记为后台待处理。"""
+        with self._distributed_lock(f"session:{session_id}"):
+            session = self._require_session(session_id, token)
+            if session.result is not None:
+                return self._completion_payload(session)
+            if len(session.lines) != 6:
+                raise ExperienceSessionError("必须先完成六爻才能排盘。")
+            if session.status == "completing":
+                raise ExperienceSessionError("排盘正在生成，请勿重复提交。")
+            session.status = "completing"
+            self._save_session(session)
+            question = session.question
+            run_id = session.run_id
+            casting_input = {
+                "mode": "manual",
+                "lines": list(reversed([line["value"] for line in session.lines])),
+                "longitude": session.longitude,
+                "latitude": session.latitude,
+                "timezone_offset_hours": session.timezone_offset_hours,
+                "experience": {
+                    "algorithm_version": self.ALGORITHM_VERSION,
+                    "seed_commitment": session.seed_commitment,
+                    "line_triggers": [line["trigger_mode"] for line in session.lines],
+                },
+            }
+
+        pipeline = self._pipeline
+        if pipeline is None:
+            from main import run_divination_pipeline
+
+            pipeline = run_divination_pipeline
+        try:
+            try:
+                result = pipeline(
+                    question,
+                    casting_input,
+                    run_id=run_id,
+                    defer_interpretation=True,
+                )
+            except TypeError as error:
+                if "defer_interpretation" not in str(error):
+                    raise
+                result = pipeline(question, casting_input, run_id=run_id)
+        except Exception:
+            with self._distributed_lock(f"session:{session_id}"):
+                current = self._load_session(session_id)
+                if current is not None:
+                    current.status = "ready_to_complete"
+                    self._save_session(current)
+            raise
+
+        pending = result.get("interpretation_status") == "pending"
+        with self._distributed_lock(f"session:{session_id}"):
+            session = self._require_session(session_id, token)
+            session.result = result
+            session.status = "interpretation_pending" if pending else "completed"
+            session.interpretation_started_at = None
+            session.ai_allowed = bool(allow_api) if pending else None
+            self._save_session(session)
+            return self._completion_payload(session)
+
+    def run_pending_interpretation(
+        self,
+        session_id: str,
+        token: str,
+        *,
+        allow_api: bool = True,
+    ) -> dict:
+        """领取并完成一个后台解释任务；崩溃后的旧领取可自动恢复。"""
+        with self._distributed_lock(f"session:{session_id}"):
+            session = self._require_session(session_id, token)
+            if session.result is None:
+                raise ExperienceSessionError("确定性盘面尚未生成。")
+            if session.status in {"completed", "interpretation_failed"}:
+                return self._completion_payload(session)
+            now = _utcnow()
+            lease_active = (
+                session.status == "interpreting"
+                and session.interpretation_started_at is not None
+                and now - session.interpretation_started_at < timedelta(seconds=90)
+            )
+            if lease_active:
+                return self._completion_payload(session)
+            session.status = "interpreting"
+            session.interpretation_started_at = now
+            result = dict(session.result)
+            effective_allow_api = (
+                session.ai_allowed if session.ai_allowed is not None else allow_api
+            )
+            self._save_session(session)
+
+        runner = self._interpretation_runner
+        if runner is None:
+            from engine.llm_interpreter import LLMInterpreter
+            from main import complete_deferred_interpretation
+
+            interpreter = None if effective_allow_api else LLMInterpreter(api_key="")
+            updated = complete_deferred_interpretation(
+                result, interpreter=interpreter
+            )
+        else:
+            updated = runner(result, allow_api=effective_allow_api)
+
+        with self._distributed_lock(f"session:{session_id}"):
+            session = self._require_session(session_id, token)
+            session.result = updated
+            session.status = (
+                "completed"
+                if updated.get("interpretation_status") == "completed"
+                else "interpretation_failed"
+            )
+            session.interpretation_started_at = None
+            session.ai_allowed = None
+            self._save_session(session)
+            return self._completion_payload(session)
+
+    def get_cast_result(self, session_id: str, token: str) -> dict:
+        with self._lock:
+            session = self._require_session(session_id, token)
+            if session.result is None:
+                raise ExperienceSessionError("确定性盘面尚未生成。")
             return self._completion_payload(session)
 
     @staticmethod
@@ -320,7 +600,7 @@ class SessionStore:
         return {
             "session_id": session.session_id,
             "run_id": session.run_id,
-            "status": "completed",
+            "status": session.status,
             "seed_commitment": session.seed_commitment,
             "seed_reveal": session.seed.hex(),
             "algorithm_version": SessionStore.ALGORITHM_VERSION,
@@ -354,12 +634,11 @@ class SessionStore:
             timezone_offset_hours=timezone_offset_hours,
         )
         now = _utcnow()
-        with self._lock:
+        with self._distributed_lock("pairing-create"):
             self._cleanup()
-            existing_codes = {pairing.code for pairing in self._pairings.values()}
             for _ in range(20):
                 code = f"{secrets.randbelow(1_000_000):06d}"
-                if code not in existing_codes:
+                if self._load_pairing_by_code(code) is None:
                     break
             else:
                 raise ExperienceSessionError("暂时无法创建配对码，请重试。")
@@ -372,7 +651,7 @@ class SessionStore:
                 created_at=now,
                 expires_at=now + self._pairing_ttl,
             )
-            self._pairings[pairing.pairing_id] = pairing
+            self._save_pairing(pairing)
             return self._public_pairing(pairing, cast)
 
     @staticmethod
@@ -390,7 +669,7 @@ class SessionStore:
     def require_pairing(self, pairing_id: str, token: str) -> PairingSession:
         with self._lock:
             self._cleanup()
-            pairing = self._pairings.get(pairing_id)
+            pairing = self._load_pairing(pairing_id)
             if pairing is None:
                 raise ExperienceSessionError("配对会话不存在或已过期。")
             if not token or not hmac.compare_digest(pairing.token, token):
@@ -401,13 +680,12 @@ class SessionStore:
         normalized = str(code).strip()
         with self._lock:
             self._cleanup()
-            pairing = next(
-                (item for item in self._pairings.values() if item.code == normalized),
-                None,
-            )
+            pairing = self._load_pairing_by_code(normalized)
             if pairing is None:
                 raise ExperienceSessionError("配对码无效或已过期。")
-            cast = self._sessions[pairing.cast_session_id]
+            cast = self._load_session(pairing.cast_session_id)
+            if cast is None:
+                raise ExperienceSessionError("起卦会话不存在或已过期。")
             return self._public_pairing(pairing, self._public_session(cast))
 
     def lock_pairing_line(
@@ -431,3 +709,31 @@ class SessionStore:
     def complete_pairing(self, pairing_id: str, token: str) -> dict:
         pairing = self.require_pairing(pairing_id, token)
         return self.complete_cast_session(pairing.cast_session_id, pairing.cast_token)
+
+    def prepare_pairing(
+        self, pairing_id: str, token: str, *, allow_api: bool = True
+    ) -> dict:
+        pairing = self.require_pairing(pairing_id, token)
+        return self.prepare_cast_session(
+            pairing.cast_session_id,
+            pairing.cast_token,
+            allow_api=allow_api,
+        )
+
+    def run_pairing_interpretation(
+        self, pairing_id: str, token: str, *, allow_api: bool = True
+    ) -> dict:
+        pairing = self.require_pairing(pairing_id, token)
+        return self.run_pending_interpretation(
+            pairing.cast_session_id,
+            pairing.cast_token,
+            allow_api=allow_api,
+        )
+
+    def get_pairing_snapshot(self, pairing_id: str, token: str) -> dict:
+        pairing = self.require_pairing(pairing_id, token)
+        session = self._require_session(pairing.cast_session_id, pairing.cast_token)
+        payload = self._public_session(session)
+        if session.result is not None:
+            payload["completion"] = self._completion_payload(session)
+        return payload

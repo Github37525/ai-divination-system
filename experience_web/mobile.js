@@ -20,6 +20,8 @@ const state = {
   directionChanges: 0
 };
 
+const DIRECT_SESSION_KEY = "shuzhi.direct-session.v1";
+
 const $ = selector => document.querySelector(selector);
 const setupPanel = $("#setupPanel");
 const castPanel = $("#castPanel");
@@ -66,6 +68,18 @@ function showCastPanel() {
   resultPanel.hidden = true;
   castPanel.hidden = false;
   $("#lineProgress").textContent = String(state.lines.length);
+}
+
+function saveDirectSession() {
+  if (!state.sessionId || !state.sessionToken || state.pairingId) return;
+  sessionStorage.setItem(DIRECT_SESSION_KEY, JSON.stringify({
+    sessionId: state.sessionId,
+    sessionToken: state.sessionToken
+  }));
+}
+
+function clearDirectSession() {
+  sessionStorage.removeItem(DIRECT_SESSION_KEY);
 }
 
 function lineGlyph(line) {
@@ -146,6 +160,7 @@ async function createDirectSession() {
     });
     state.sessionId = session.session_id;
     state.sessionToken = session.session_token;
+    saveDirectSession();
     showCastPanel();
     setStatus("手机独立起卦", "connected");
   } catch (error) {
@@ -178,7 +193,24 @@ function connectPairing(pairingId, token, attempt = 0) {
   });
   socket.addEventListener("message", event => {
     const message = JSON.parse(event.data);
+    if (message.type === "session_snapshot") {
+      state.lines = [];
+      $("#lineList").replaceChildren();
+      (message.lines || []).forEach(renderLine);
+      const completion = message.completion;
+      if (completion) {
+        if (["interpretation_pending", "interpreting"].includes(completion.status)) {
+          showPendingResult(completion);
+        } else {
+          showResult(completion);
+        }
+      } else {
+        showCastPanel();
+        setStatus(`协同进度已恢复 · ${state.lines.length} / 6 爻`, "connected");
+      }
+    }
     if (message.type === "line_locked") animateLine(message.line);
+    if (message.type === "cast_prepared") showPendingResult(message);
     if (message.type === "cast_completed") showResult(message);
     if (message.type === "error") showError(new Error(message.message));
     if (message.type === "peer_status" && message.role === "desktop" && message.status === "connected") {
@@ -307,10 +339,90 @@ async function completeCast() {
       method: "POST",
       headers: { Authorization: `Bearer ${state.sessionToken}` }
     });
-    showResult({ ...completed, type: "cast_completed" });
+    if (["interpretation_pending", "interpreting"].includes(completed.status)) {
+      showPendingResult(completed);
+      pollDirectResult();
+    } else {
+      showResult({ ...completed, type: "cast_completed" });
+    }
   } catch (error) {
     showError(error);
     $("#completeButton").disabled = false;
+  }
+}
+
+function showPendingResult(payload) {
+  state.busy = false;
+  const summary = payload.result_summary || {};
+  castPanel.hidden = true;
+  resultPanel.hidden = false;
+  $("#resultTitle").textContent = summary.changed_hexagram_name
+    ? `${summary.hexagram_name || "本卦"} → ${summary.changed_hexagram_name}`
+    : summary.hexagram_name || "盘面已完成";
+  $("#resultMeta").textContent = `Run ID · ${(payload.run_id || "").slice(0, 8)} · DeepSeek 解读生成中`;
+  renderInterpretation(
+    $("#resultInterpretation"),
+    summary.interpretation || "确定性盘面已完成，DeepSeek 正在后台生成白话解读。"
+  );
+  $("#resultHapticButton").hidden = true;
+  $("#resultHapticStatus").textContent = "你可以停留在本页，解读完成后会自动更新。";
+  setStatus("盘面完成 · 解读生成中", "connected");
+}
+
+async function pollDirectResult(attempt = 0) {
+  if (!state.sessionId || !state.sessionToken || state.pairingId) return;
+  try {
+    const result = await requestJson(`/v1/cast-sessions/${state.sessionId}/result`, {
+      headers: { Authorization: `Bearer ${state.sessionToken}` }
+    });
+    if (["interpretation_pending", "interpreting"].includes(result.status)) {
+      if (attempt < 90) setTimeout(() => pollDirectResult(attempt + 1), 1200);
+      return;
+    }
+    showResult(result);
+  } catch (error) {
+    if (attempt < 8) {
+      setTimeout(() => pollDirectResult(attempt + 1), 1500);
+      return;
+    }
+    showError(error);
+  }
+}
+
+async function restoreDirectSession() {
+  const stored = sessionStorage.getItem(DIRECT_SESSION_KEY);
+  if (!stored) return false;
+  try {
+    const saved = JSON.parse(stored);
+    if (!saved.sessionId || !saved.sessionToken) throw new Error("恢复信息不完整。");
+    state.sessionId = saved.sessionId;
+    state.sessionToken = saved.sessionToken;
+    const session = await requestJson(`/v1/cast-sessions/${state.sessionId}`, {
+      headers: { Authorization: `Bearer ${state.sessionToken}` }
+    });
+    state.lines = [];
+    $("#lineList").replaceChildren();
+    session.lines.forEach(renderLine);
+    if (["interpretation_pending", "interpreting", "completed", "interpretation_failed"].includes(session.status)) {
+      const result = await requestJson(`/v1/cast-sessions/${state.sessionId}/result`, {
+        headers: { Authorization: `Bearer ${state.sessionToken}` }
+      });
+      if (["interpretation_pending", "interpreting"].includes(result.status)) {
+        showPendingResult(result);
+        pollDirectResult();
+      } else {
+        showResult(result);
+      }
+    } else {
+      showCastPanel();
+      setStatus(`已恢复 · ${state.lines.length} / 6 爻`, "connected");
+    }
+    return true;
+  } catch (_) {
+    clearDirectSession();
+    state.sessionId = null;
+    state.sessionToken = null;
+    return false;
   }
 }
 
@@ -363,7 +475,11 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const pairingId = params.get("pairing");
   const token = params.get("token");
-  if (pairingId && token) connectPairing(pairingId, token);
+  if (pairingId && token) {
+    connectPairing(pairingId, token);
+  } else {
+    await restoreDirectSession();
+  }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 }
 
@@ -376,6 +492,7 @@ $("#resultHapticButton").addEventListener("click", () => {
     ? "触觉确认已发送。"
     : "当前浏览器或系统未执行震动。";
 });
+$("#newCastLink").addEventListener("click", clearDirectSession);
 $("#settingsButton").addEventListener("click", () => {
   const panel = $("#settingsPanel");
   panel.hidden = !panel.hidden;

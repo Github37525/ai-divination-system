@@ -9,3 +9,18 @@ services:
     startCommand: uvicorn experience.api:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /healthz
     autoDeployTrigger: commit
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ai-divination-state
+          property: connectionString
+      - key: EXPERIENCE_REQUIRE_REDIS
+        value: "1"
+  - type: keyvalue
+    name: ai-divination-state
+    plan: free
+    region: singapore
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+    persistenceMode: off

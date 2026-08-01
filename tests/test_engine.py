@@ -585,6 +585,29 @@ class AuditTrackerTests(unittest.TestCase):
 
 
 class FullPipelineTests(unittest.TestCase):
+    def test_deferred_pipeline_returns_verified_pending_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tracker = AuditTracker(Path(directory) / "deferred.sqlite3")
+            result = run_divination_pipeline(
+                "测试异步确定性阶段",
+                {
+                    "mode": "manual",
+                    "lines": [8, 8, 8, 8, 8, 8],
+                    "longitude": 120.15,
+                    "latitude": 30.28,
+                    "timezone_offset_hours": 8.0,
+                },
+                now=datetime(2026, 8, 12, 10, 30),
+                interpreter=LLMInterpreter(api_key=""),
+                tracker=tracker,
+                defer_interpretation=True,
+            )
+            self.assertEqual(result["interpretation_status"], "pending")
+            self.assertEqual(result["llm_metadata"]["mode"], "pending")
+            self.assertFalse(result["llm_metadata"]["ai_generated"])
+            self.assertIn("后台生成", result["llm_response"])
+            self.assertIsNotNone(tracker.get_run(result["run_id"]))
+
     def test_offline_pipeline_persists_complete_audit_record(self):
         with tempfile.TemporaryDirectory() as directory:
             tracker = AuditTracker(Path(directory) / "pipeline.sqlite3")
